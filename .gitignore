@@ -50,6 +50,14 @@ bun.lockb
 .DS_Store
 Thumbs.db
 
+# Windows reserved device names
+nul
+con
+prn
+aux
+com1
+lpt1
+
 # Design / Figma
 design/src/app/components/ui/
 
