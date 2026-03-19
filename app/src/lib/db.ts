@@ -1,4 +1,4 @@
-import { Pool, PoolConfig } from "pg";
+import { Pool, PoolConfig, QueryResultRow, QueryResult } from "pg";
 
 /**
  * 数据库配置接口
@@ -67,7 +67,7 @@ export function getPool(): Pool {
  * @param params - 查询参数
  * @returns 查询结果
  */
-export async function query<T = unknown>(text: string, params?: unknown[]) {
+export async function query<T extends QueryResultRow = QueryResultRow>(text: string, params?: unknown[]): Promise<QueryResult<T>> {
   const pool = getPool();
   const start = Date.now();
   const result = await pool.query<T>(text, params);
