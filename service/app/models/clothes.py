@@ -38,6 +38,7 @@ class UserClothes(Base):
     image_url = Column(String(512), nullable=False)
     category = Column(Enum(ClothesCategory), nullable=False)
     color = Column(String(32), nullable=False)
+    material = Column(String(64), nullable=True)
     temperature_range = Column(Enum(TemperatureRange), nullable=False)
     scene = Column(Enum(Scene), nullable=True)
     wear_method = Column(Enum(WearMethod), nullable=True)

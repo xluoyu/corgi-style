@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
@@ -6,6 +6,7 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models import UserClothes, ClothesCategory, TemperatureRange, Scene, WearMethod
+from app.services.image_service import image_service
 
 router = APIRouter(prefix="/clothes", tags=["clothes"])
 
@@ -30,6 +31,7 @@ class ClothesItem(BaseModel):
     image_url: str
     category: str
     color: str
+    material: Optional[str] = None
     temperature_range: str
     scene: Optional[str]
     wear_method: Optional[str]
@@ -122,6 +124,7 @@ def list_clothes(
             image_url=c.image_url,
             category=c.category.value if hasattr(c.category, 'value') else c.category,
             color=c.color,
+            material=c.material,
             temperature_range=c.temperature_range.value if hasattr(c.temperature_range, 'value') else c.temperature_range,
             scene=c.scene.value if c.scene and hasattr(c.scene, 'value') else c.scene,
             wear_method=c.wear_method.value if c.wear_method and hasattr(c.wear_method, 'value') else c.wear_method,
@@ -146,3 +149,88 @@ def delete_clothes(request: DeleteClothesRequest, db: Session = Depends(get_db))
     db.commit()
 
     return DeleteClothesResponse(message="衣服删除成功")
+
+class UploadClothesRequest(BaseModel):
+    user_id: str
+    description: Optional[str] = None
+
+class UploadClothesResponse(BaseModel):
+    clothes_id: int
+    message: str
+    image_url: str
+    color: str
+    category: str
+    material: Optional[str]
+    temperature_range: str
+    wear_method: str
+
+@router.post("/upload", response_model=UploadClothesResponse)
+async def upload_clothes(
+    user_id: str,
+    description: Optional[str] = None,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    image_data = await file.read()
+    
+    if len(image_data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="图片大小不能超过10MB")
+    
+    if not file.content_type or not file.content_type.startswith('image/'):
+        raise HTTPException(status_code=400, detail="只能上传图片文件")
+    
+    result = await image_service.process_clothes_parallel(image_data, user_id)
+    
+    analysis = result["analysis"] or {}
+    oss_url = result["oss_url"]
+    
+    try:
+        category = ClothesCategory(analysis.get('category', 'top'))
+    except ValueError:
+        category = ClothesCategory.top
+    
+    try:
+        temperature_range = TemperatureRange(analysis.get('temperature_range', 'all_season'))
+    except ValueError:
+        temperature_range = TemperatureRange.all_season
+    
+    scene = None
+    if analysis.get('scene'):
+        try:
+            scene = Scene(analysis['scene'])
+        except ValueError:
+            scene = None
+    
+    wear_method = None
+    if analysis.get('wear_method'):
+        try:
+            wear_method = WearMethod(analysis['wear_method'])
+        except ValueError:
+            wear_method = None
+    
+    clothes = UserClothes(
+        user_id=user_id,
+        image_url=oss_url,
+        category=category,
+        color=analysis.get('color', '未知'),
+        material=analysis.get('material'),
+        temperature_range=temperature_range,
+        scene=scene,
+        wear_method=wear_method,
+        description=description
+    )
+    
+    db.add(clothes)
+    db.commit()
+    db.refresh(clothes)
+    
+    return UploadClothesResponse(
+        clothes_id=clothes.id,
+        message="衣服上传成功",
+        image_url=oss_url,
+        color=analysis.get('color', '未知'),
+        category=analysis.get('category', 'top'),
+        material=analysis.get('material'),
+        temperature_range=analysis.get('temperature_range', 'all_season'),
+        wear_method=analysis.get('wear_method', 'single_wear')
+    )
