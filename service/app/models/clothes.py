@@ -1,8 +1,9 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Enum
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Enum, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
 from app.database import Base
+
 
 class ClothesCategory(str, enum.Enum):
     top = "top"
@@ -11,11 +12,13 @@ class ClothesCategory(str, enum.Enum):
     inner = "inner"
     accessory = "accessory"
 
+
 class TemperatureRange(str, enum.Enum):
     summer = "summer"
     spring_autumn = "spring_autumn"
     winter = "winter"
     all_season = "all_season"
+
 
 class Scene(str, enum.Enum):
     daily = "daily"
@@ -24,11 +27,13 @@ class Scene(str, enum.Enum):
     date = "date"
     party = "party"
 
+
 class WearMethod(str, enum.Enum):
     inner_wear = "inner_wear"
     outer_wear = "outer_wear"
     single_wear = "single_wear"
     layering = "layering"
+
 
 class UserClothes(Base):
     __tablename__ = "user_clothes"
@@ -44,6 +49,9 @@ class UserClothes(Base):
     wear_method = Column(Enum(WearMethod), nullable=True)
     brand = Column(String(128), nullable=True)
     description = Column(Text, nullable=True)
+    generated_image_url = Column(String(512), nullable=True)
+    analysis_completed = Column(Boolean, default=False)
+    generated_completed = Column(Boolean, default=False)
     create_time = Column(DateTime, default=datetime.now)
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

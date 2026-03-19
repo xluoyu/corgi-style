@@ -6,9 +6,10 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models import UserClothes, ClothesCategory, TemperatureRange, Scene, WearMethod
-from app.services.image_service import image_service
+from app.agent.clothes_agent import clothes_agent
 
 router = APIRouter(prefix="/clothes", tags=["clothes"])
+
 
 class AddClothesRequest(BaseModel):
     user_id: str
@@ -21,9 +22,11 @@ class AddClothesRequest(BaseModel):
     brand: Optional[str] = None
     description: Optional[str] = None
 
+
 class AddClothesResponse(BaseModel):
     clothes_id: int
     message: str
+
 
 class ClothesItem(BaseModel):
     id: int
@@ -37,21 +40,42 @@ class ClothesItem(BaseModel):
     wear_method: Optional[str]
     brand: Optional[str]
     description: Optional[str]
+    generated_image_url: Optional[str]
+    analysis_completed: bool
+    generated_completed: bool
     create_time: datetime
 
     class Config:
         from_attributes = True
 
+
 class ClothesListResponse(BaseModel):
     clothes: List[ClothesItem]
     total: int
+
 
 class DeleteClothesRequest(BaseModel):
     user_id: str
     clothes_id: int
 
+
 class DeleteClothesResponse(BaseModel):
     message: str
+
+
+class UploadClothesResponse(BaseModel):
+    clothes_id: int
+    message: str
+    image_url: str
+    generated_image_url: Optional[str]
+    color: Optional[str]
+    category: Optional[str]
+    material: Optional[str]
+    temperature_range: Optional[str]
+    wear_method: Optional[str]
+    scene: Optional[str]
+    completed_tasks: List[str]
+
 
 @router.post("/add", response_model=AddClothesResponse)
 def add_clothes(request: AddClothesRequest, db: Session = Depends(get_db)):
@@ -100,6 +124,7 @@ def add_clothes(request: AddClothesRequest, db: Session = Depends(get_db)):
         message="衣服添加成功"
     )
 
+
 @router.get("/list", response_model=ClothesListResponse)
 def list_clothes(
     user_id: str,
@@ -130,10 +155,14 @@ def list_clothes(
             wear_method=c.wear_method.value if c.wear_method and hasattr(c.wear_method, 'value') else c.wear_method,
             brand=c.brand,
             description=c.description,
+            generated_image_url=c.generated_image_url,
+            analysis_completed=c.analysis_completed,
+            generated_completed=c.generated_completed,
             create_time=c.create_time
         ) for c in clothes_list],
         total=len(clothes_list)
     )
+
 
 @router.post("/delete", response_model=DeleteClothesResponse)
 def delete_clothes(request: DeleteClothesRequest, db: Session = Depends(get_db)):
@@ -150,19 +179,6 @@ def delete_clothes(request: DeleteClothesRequest, db: Session = Depends(get_db))
 
     return DeleteClothesResponse(message="衣服删除成功")
 
-class UploadClothesRequest(BaseModel):
-    user_id: str
-    description: Optional[str] = None
-
-class UploadClothesResponse(BaseModel):
-    clothes_id: int
-    message: str
-    image_url: str
-    color: str
-    category: str
-    material: Optional[str]
-    temperature_range: str
-    wear_method: str
 
 @router.post("/upload", response_model=UploadClothesResponse)
 async def upload_clothes(
@@ -179,58 +195,42 @@ async def upload_clothes(
     if not file.content_type or not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="只能上传图片文件")
     
-    result = await image_service.process_clothes_parallel(image_data, user_id)
-    
-    analysis = result["analysis"] or {}
-    oss_url = result["oss_url"]
-    
-    try:
-        category = ClothesCategory(analysis.get('category', 'top'))
-    except ValueError:
-        category = ClothesCategory.top
-    
-    try:
-        temperature_range = TemperatureRange(analysis.get('temperature_range', 'all_season'))
-    except ValueError:
-        temperature_range = TemperatureRange.all_season
-    
-    scene = None
-    if analysis.get('scene'):
-        try:
-            scene = Scene(analysis['scene'])
-        except ValueError:
-            scene = None
-    
-    wear_method = None
-    if analysis.get('wear_method'):
-        try:
-            wear_method = WearMethod(analysis['wear_method'])
-        except ValueError:
-            wear_method = None
-    
-    clothes = UserClothes(
-        user_id=user_id,
-        image_url=oss_url,
-        category=category,
-        color=analysis.get('color', '未知'),
-        material=analysis.get('material'),
-        temperature_range=temperature_range,
-        scene=scene,
-        wear_method=wear_method,
-        description=description
-    )
-    
-    db.add(clothes)
-    db.commit()
-    db.refresh(clothes)
+    result = await clothes_agent.run(image_data, user_id, db)
     
     return UploadClothesResponse(
-        clothes_id=clothes.id,
-        message="衣服上传成功",
-        image_url=oss_url,
-        color=analysis.get('color', '未知'),
-        category=analysis.get('category', 'top'),
-        material=analysis.get('material'),
-        temperature_range=analysis.get('temperature_range', 'all_season'),
-        wear_method=analysis.get('wear_method', 'single_wear')
+        clothes_id=result.clothes_id or 0,
+        message=result.message,
+        image_url=result.image_url or "",
+        generated_image_url=result.generated_image_url,
+        color=result.color,
+        category=result.category,
+        material=result.material,
+        temperature_range=result.temperature_range,
+        wear_method=result.wear_method,
+        scene=result.scene,
+        completed_tasks=result.completed_tasks
     )
+
+
+@router.get("/status/{clothes_id}")
+def get_clothes_status(
+    clothes_id: int,
+    db: Session = Depends(get_db)
+):
+    clothes = db.query(UserClothes).filter(UserClothes.id == clothes_id).first()
+    
+    if not clothes:
+        raise HTTPException(status_code=404, detail="衣服不存在")
+    
+    return {
+        "clothes_id": clothes.id,
+        "analysis_completed": clothes.analysis_completed,
+        "generated_completed": clothes.generated_completed,
+        "generated_image_url": clothes.generated_image_url,
+        "color": clothes.color,
+        "category": clothes.category.value if hasattr(clothes.category, 'value') else clothes.category,
+        "material": clothes.material,
+        "temperature_range": clothes.temperature_range.value if hasattr(clothes.temperature_range, 'value') else clothes.temperature_range,
+        "wear_method": clothes.wear_method.value if clothes.wear_method and hasattr(clothes.wear_method, 'value') else clothes.wear_method,
+        "scene": clothes.scene.value if clothes.scene and hasattr(clothes.scene, 'value') else clothes.scene
+    }
