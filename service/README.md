@@ -49,35 +49,28 @@ service/
 └── .gitignore
 ```
 
-## 快速开始
+## 快速开始 (Windows)
 
 ### 1. 安装依赖
 
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
 ### 2. 配置环境变量
 
-```bash
-cp .env.example .env
-# 编辑 .env 填入配置
-```
+项目根目录已包含 `.env` 配置文件，包含数据库连接、LLM 和 OSS 的配置信息。
 
-### 3. 初始化数据库
+如需修改，编辑 `.env` 文件即可。
 
-```bash
-# 创建 PostgreSQL 数据库
-psql -U postgres -f schema.sql
+### 3. 启动服务
 
-# 或使用 SQLAlchemy 自动创建表
-python -c "from app.database import init_db; init_db()"
-```
+```powershell
+# 进入项目目录
+cd service
 
-### 4. 启动服务
-
-```bash
-uvicorn app.main:app --reload
+# 启动服务
+python -m uvicorn app.main:app --reload
 ```
 
 服务启动后访问 http://localhost:8000/docs 查看 API 文档。
