@@ -27,7 +27,9 @@
       "Bash(taskkill //F //PID 9028)",
       "Bash(taskkill //F //PID 28576)",
       "Bash(taskkill //F //PID 25932)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(find D:/Work/my/Corgi-style/app/src -name *.tsx -o -name *.ts)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

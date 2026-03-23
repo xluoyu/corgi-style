@@ -197,20 +197,19 @@ export async function deleteClothes(clothesId: string): Promise<DeleteClothesRes
 }
 
 /**
- * 上传衣物图片（包含 AI 分析和卡通化）
+ * 上传衣物图片（仅上传到OSS，后台异步处理分析和生成）
  */
 export async function uploadClothesImage(
-  file: File,
-  description?: string
-): Promise<UploadClothesResponse> {
+  file: File
+): Promise<{ clothes_id: number; message: string; image_url: string }> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("user_id", getUserId());
-  if (description) {
-    formData.append("description", description);
-  }
 
-  return await uploadRequest<UploadClothesResponse>("/clothes/upload", formData);
+  return await uploadRequest<{ clothes_id: number; message: string; image_url: string }>(
+    "/clothes/upload",
+    formData
+  );
 }
 
 /**
@@ -352,4 +351,100 @@ export async function getOutfitStatsSummary(days = 30): Promise<OutfitStatsSumma
     days: days.toString(),
   });
   return await request<OutfitStatsSummary>(`/history/stats/summary?${params.toString()}`);
+}
+
+// ============ 聊天 API（流式） ============
+
+import type { ChatStreamEvent, ChatStreamParams, OutfitCard, Suggestion } from "@/types/chat";
+
+/**
+ * 流式对话
+ * 返回一个 AsyncGenerator，逐步产出事件
+ */
+export async function* chatMessageStream(
+  params: ChatStreamParams
+): AsyncGenerator<ChatStreamEvent, void, unknown> {
+  const url = `${API_BASE_URL}/chat/message/stream`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      user_id: params.user_id,
+      session_id: params.session_id,
+      message: params.message,
+      context: params.context,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`请求失败: ${response.status}`);
+  }
+
+  if (!response.body) {
+    throw new Error("响应体为空");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // 处理 SSE 事件
+      // 格式: event: type\ndata: json\n\n
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.startsWith("event:")) {
+          const eventType = line.slice(6).trim();
+          // 直接使用下一个索引获取 data 行
+          const nextIdx = i + 1;
+          if (nextIdx < lines.length && lines[nextIdx].startsWith("data:")) {
+            const dataStr = lines[nextIdx].slice(5).trim();
+            try {
+              const data = JSON.parse(dataStr);
+              yield { event: eventType as ChatStreamEvent["event"], content: data } as ChatStreamEvent;
+            } catch {
+              // 忽略解析错误
+            }
+            i = nextIdx; // 跳过已处理的 data 行
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
+ * 非流式聊天（兼容旧版本）
+ */
+export async function chatMessage(params: ChatStreamParams): Promise<{
+  session_id: string;
+  message: string;
+  contents: Array<{ type: string; content: any }>;
+  data?: any;
+  suggestions?: Suggestion[];
+}> {
+  return await request("/chat/message", {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: params.user_id,
+      session_id: params.session_id,
+      message: params.message,
+      context: params.context,
+    }),
+  });
 }

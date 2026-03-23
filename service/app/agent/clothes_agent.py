@@ -58,24 +58,26 @@ class ClothesAgent:
         )
         return {"type": "analysis", "result": result}
     
-    async def generate_product_image(self, image_data: bytes, user_id: str) -> dict:
+    async def generate_product_image(self, image_path: str, user_id: str) -> dict:
+        # 使用 Qwen-Image-2.0，传 signed URL
+        signed_url = oss_uploader.get_signed_url(image_path)
         loop = asyncio.get_event_loop()
         generated_data = await loop.run_in_executor(
             ThreadPoolExecutor(),
-            lambda: image_generator.generate(self.generation_prompt, image_data)
+            lambda: image_generator.generate(GENERATION_PROMPT, reference_image_url=signed_url)
         )
         url = oss_uploader.upload(generated_data, user_id, sub_dir="clothes-generated")
         return {"type": "generated_image", "result": url}
     
     async def run(self, image_data: bytes, user_id: str, db_session) -> ClothesAgentResult:
-        from app.models import UserClothes, ClothesCategory, TemperatureRange, Scene, WearMethod
-        
+        from app.models import UserClothes, ClothesCategory, TemperatureRange
+
         result = ClothesAgentResult()
-        original_image_url = oss_uploader.upload(image_data, user_id, sub_dir="clothes")
+        original_image_path = oss_uploader.upload(image_data, user_id, sub_dir="clothes")
         
         async def run_tasks():
             analysis_task = asyncio.create_task(self.analyze_clothes(image_data, user_id))
-            generation_task = asyncio.create_task(self.generate_product_image(image_data, user_id))
+            generation_task = asyncio.create_task(self.generate_product_image(original_image_path, user_id))
             
             completed = {}
             remaining = {"analysis": analysis_task, "generation": generation_task}
@@ -112,10 +114,10 @@ class ClothesAgent:
                         result.success = True
                         result.message = "产品图生成完成"
                     
-                    result.image_url = original_image_url
-                    
+                    result.image_url = original_image_path
+
                     clothes = self._create_clothes_record(
-                        db_session, user_id, original_image_url, result
+                        db_session, user_id, original_image_path, result
                     )
                     result.clothes_id = clothes.id
                     
@@ -144,44 +146,29 @@ class ClothesAgent:
         return result
     
     def _create_clothes_record(self, db_session, user_id: str, image_url: str, result: ClothesAgentResult) -> UserClothes:
-        from app.models import UserClothes, ClothesCategory, TemperatureRange, Scene, WearMethod
-        
+        from app.models import UserClothes, ClothesCategory, TemperatureRange
+
         try:
             category = ClothesCategory(result.category or 'top')
         except ValueError:
             category = ClothesCategory.top
-        
+
         try:
             temperature_range = TemperatureRange(result.temperature_range or 'all_season')
         except ValueError:
             temperature_range = TemperatureRange.all_season
-        
-        scene = None
-        if result.scene:
-            try:
-                scene = Scene(result.scene)
-            except ValueError:
-                scene = None
-        
-        wear_method = None
-        if result.wear_method:
-            try:
-                wear_method = WearMethod(result.wear_method)
-            except ValueError:
-                wear_method = None
-        
+
         clothes = UserClothes(
             user_id=user_id,
-            image_url=image_url,
+            original_image_url=image_url,
             category=category,
             color=result.color or '未知',
             material=result.material,
             temperature_range=temperature_range,
-            scene=scene,
-            wear_method=wear_method,
-            generated_image_url=result.generated_image_url,
-            analysis_completed="analysis" in result.completed_tasks,
-            generated_completed="generated_image" in result.completed_tasks
+            tags="{}",
+            cartoon_image_url=result.generated_image_url,
+            analysis_completed=1 if "analysis" in result.completed_tasks else 0,
+            generated_completed=1 if "generated_image" in result.completed_tasks else 0
         )
         
         db_session.add(clothes)
@@ -191,14 +178,14 @@ class ClothesAgent:
         return clothes
     
     def _update_clothes_record(self, db_session, clothes_id: int, result: ClothesAgentResult):
-        from app.models import UserClothes, ClothesCategory, TemperatureRange, Scene, WearMethod
-        
+        from app.models import UserClothes, ClothesCategory, TemperatureRange
+
         clothes = db_session.query(UserClothes).filter(UserClothes.id == clothes_id).first()
         if not clothes:
             return
-        
+
         if "analysis" in result.completed_tasks:
-            clothes.analysis_completed = True
+            clothes.analysis_completed = 1
             if result.category:
                 try:
                     clothes.category = ClothesCategory(result.category)
@@ -213,21 +200,11 @@ class ClothesAgent:
                     clothes.temperature_range = TemperatureRange(result.temperature_range)
                 except ValueError:
                     pass
-            if result.scene:
-                try:
-                    clothes.scene = Scene(result.scene)
-                except ValueError:
-                    pass
-            if result.wear_method:
-                try:
-                    clothes.wear_method = WearMethod(result.wear_method)
-                except ValueError:
-                    pass
-        
+
         if "generated_image" in result.completed_tasks and result.generated_image_url:
-            clothes.generated_completed = True
+            clothes.generated_completed = 1
             clothes.generated_image_url = result.generated_image_url
-        
+
         db_session.commit()
 
 

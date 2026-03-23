@@ -15,4 +15,4 @@ class OutfitCache(Base):
     image_url = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
     outfit_items = Column(JSONB, nullable=True)
-    create_time = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=datetime.now)

@@ -1,12 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+from uuid import UUID
+import asyncio
+import threading
 
 from app.database import get_db
-from app.models import UserClothes, ClothesCategory, TemperatureRange, Scene, WearMethod
+from app.models import UserClothes, ClothesCategory, TemperatureRange
 from app.agent.clothes_agent import clothes_agent
+from app.services.oss_uploader import oss_uploader
 
 router = APIRouter(prefix="/clothes", tags=["clothes"])
 
@@ -17,10 +21,6 @@ class AddClothesRequest(BaseModel):
     category: str
     color: str
     temperature_range: str
-    scene: Optional[str] = None
-    wear_method: Optional[str] = None
-    brand: Optional[str] = None
-    description: Optional[str] = None
 
 
 class AddClothesResponse(BaseModel):
@@ -29,7 +29,7 @@ class AddClothesResponse(BaseModel):
 
 
 class ClothesItem(BaseModel):
-    id: int
+    id: str
     user_id: str
     image_url: str
     category: str
@@ -43,7 +43,7 @@ class ClothesItem(BaseModel):
     generated_image_url: Optional[str]
     analysis_completed: bool
     generated_completed: bool
-    create_time: datetime
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -56,25 +56,17 @@ class ClothesListResponse(BaseModel):
 
 class DeleteClothesRequest(BaseModel):
     user_id: str
-    clothes_id: int
+    clothes_id: str
 
 
 class DeleteClothesResponse(BaseModel):
     message: str
 
 
-class UploadClothesResponse(BaseModel):
-    clothes_id: int
+class UploadSimpleResponse(BaseModel):
+    clothes_id: str
     message: str
     image_url: str
-    generated_image_url: Optional[str]
-    color: Optional[str]
-    category: Optional[str]
-    material: Optional[str]
-    temperature_range: Optional[str]
-    wear_method: Optional[str]
-    scene: Optional[str]
-    completed_tasks: List[str]
 
 
 @router.post("/add", response_model=AddClothesResponse)
@@ -89,30 +81,15 @@ def add_clothes(request: AddClothesRequest, db: Session = Depends(get_db)):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"无效的温度区间: {request.temperature_range}")
 
-    scene = None
-    if request.scene:
-        try:
-            scene = Scene(request.scene)
-        except ValueError:
-            scene = None
-
-    wear_method = None
-    if request.wear_method:
-        try:
-            wear_method = WearMethod(request.wear_method)
-        except ValueError:
-            wear_method = None
-
     clothes = UserClothes(
         user_id=request.user_id,
-        image_url=request.image_url,
+        original_image_url=request.image_url,
         category=category,
         color=request.color,
         temperature_range=temperature_range,
-        scene=scene,
-        wear_method=wear_method,
-        brand=request.brand,
-        description=request.description
+        tags="{}",
+        analysis_completed=0,
+        generated_completed=0
     )
 
     db.add(clothes)
@@ -140,25 +117,25 @@ def list_clothes(
         except ValueError:
             pass
 
-    clothes_list = query.order_by(UserClothes.create_time.desc()).all()
+    clothes_list = query.order_by(UserClothes.created_at.desc()).all()
 
     return ClothesListResponse(
         clothes=[ClothesItem(
-            id=c.id,
-            user_id=c.user_id,
-            image_url=c.image_url,
-            category=c.category.value if hasattr(c.category, 'value') else c.category,
-            color=c.color,
+            id=str(c.id),
+            user_id=str(c.user_id),
+            image_url=oss_uploader.get_signed_url(c.original_image_url) if c.original_image_url else (oss_uploader.get_signed_url(c.cartoon_image_url) if c.cartoon_image_url else ""),
+            category=c.category,
+            color=c.color or "",
             material=c.material,
-            temperature_range=c.temperature_range.value if hasattr(c.temperature_range, 'value') else c.temperature_range,
-            scene=c.scene.value if c.scene and hasattr(c.scene, 'value') else c.scene,
-            wear_method=c.wear_method.value if c.wear_method and hasattr(c.wear_method, 'value') else c.wear_method,
-            brand=c.brand,
-            description=c.description,
-            generated_image_url=c.generated_image_url,
-            analysis_completed=c.analysis_completed,
-            generated_completed=c.generated_completed,
-            create_time=c.create_time
+            temperature_range=c.temperature_range or "",
+            scene=None,
+            wear_method=None,
+            brand=None,
+            description=None,
+            generated_image_url=oss_uploader.get_signed_url(c.cartoon_image_url) if c.cartoon_image_url else None,
+            analysis_completed=c.analysis_completed == 1,
+            generated_completed=c.generated_completed == 1,
+            created_at=c.created_at
         ) for c in clothes_list],
         total=len(clothes_list)
     )
@@ -180,57 +157,90 @@ def delete_clothes(request: DeleteClothesRequest, db: Session = Depends(get_db))
     return DeleteClothesResponse(message="衣服删除成功")
 
 
-@router.post("/upload", response_model=UploadClothesResponse)
+def run_clothes_agent_async(image_data: bytes, user_id: str, db_session):
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(clothes_agent.run(image_data, user_id, db_session))
+    except Exception as e:
+        print(f"异步处理衣物失败: {e}")
+    finally:
+        loop.close()
+
+
+@router.post("/upload", response_model=UploadSimpleResponse)
 async def upload_clothes(
-    user_id: str,
-    description: Optional[str] = None,
+    user_id: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的 user_id 格式")
+
     image_data = await file.read()
-    
+
     if len(image_data) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="图片大小不能超过10MB")
-    
+
     if not file.content_type or not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="只能上传图片文件")
-    
-    result = await clothes_agent.run(image_data, user_id, db)
-    
-    return UploadClothesResponse(
-        clothes_id=result.clothes_id or 0,
-        message=result.message,
-        image_url=result.image_url or "",
-        generated_image_url=result.generated_image_url,
-        color=result.color,
-        category=result.category,
-        material=result.material,
-        temperature_range=result.temperature_range,
-        wear_method=result.wear_method,
-        scene=result.scene,
-        completed_tasks=result.completed_tasks
+
+    image_path = oss_uploader.upload(image_data, user_id, sub_dir="clothes")
+
+    clothes = UserClothes(
+        user_id=user_uuid,
+        original_image_url=image_path,
+        category="top",
+        color="识别中...",
+        material="识别中...",
+        temperature_range="all_season",
+        tags="{}",
+        analysis_completed=0,
+        generated_completed=0
+    )
+
+    db.add(clothes)
+    db.commit()
+    db.refresh(clothes)
+
+    def async_task():
+        from app.database import SessionLocal
+        new_db = SessionLocal()
+        try:
+            run_clothes_agent_async(image_data, user_id, new_db)
+        finally:
+            new_db.close()
+
+    thread = threading.Thread(target=async_task)
+    thread.daemon = True
+    thread.start()
+
+    return UploadSimpleResponse(
+        clothes_id=str(clothes.id),
+        message="上传成功",
+        image_url=oss_uploader.get_signed_url(image_path)
     )
 
 
 @router.get("/status/{clothes_id}")
 def get_clothes_status(
-    clothes_id: int,
+    clothes_id: str,
     db: Session = Depends(get_db)
 ):
     clothes = db.query(UserClothes).filter(UserClothes.id == clothes_id).first()
-    
+
     if not clothes:
         raise HTTPException(status_code=404, detail="衣服不存在")
-    
+
     return {
-        "clothes_id": clothes.id,
+        "clothes_id": str(clothes.id),
         "analysis_completed": clothes.analysis_completed,
         "generated_completed": clothes.generated_completed,
-        "generated_image_url": clothes.generated_image_url,
+        "generated_image_url": oss_uploader.get_signed_url(clothes.cartoon_image_url) if clothes.cartoon_image_url else None,
         "color": clothes.color,
-        "category": clothes.category.value if hasattr(clothes.category, 'value') else clothes.category,
+        "category": clothes.category,
         "material": clothes.material,
-        "temperature_range": clothes.temperature_range.value if hasattr(clothes.temperature_range, 'value') else clothes.temperature_range,
-        "wear_method": clothes.wear_method.value if clothes.wear_method and hasattr(clothes.wear_method, 'value') else clothes.wear_method,
-        "scene": clothes.scene.value if clothes.scene and hasattr(clothes.scene, 'value') else clothes.scene
+        "temperature_range": clothes.temperature_range
     }

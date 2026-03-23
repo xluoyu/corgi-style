@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Sun, MapPin, Cloud, Sparkles, CloudRain, CloudSnow, CloudFog, Wind, CloudLightning, Thermometer, HelpCircle, RefreshCw } from "lucide-react";
 import { motion } from "motion/react";
 import { BookOpen, Palette, Wand2, Camera, LayoutGrid, Loader2, AlertCircle } from "lucide-react";
@@ -14,6 +15,7 @@ import type { GenerateOutfitResponse } from "@/types/api";
  * 展示天气信息、穿衣指南、功能入口和今日推荐
  */
 export default function HomePage() {
+  const router = useRouter();
   const heroImage =
     "https://images.unsplash.com/photo-1700557478776-952a33fda578?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmYXNoaW9uJTIwbW9kZWxlJTIwc3RyZWV0JTIwc3R5bGUlMjBvdXRmaXR8ZW58MXx8fHwxNzcyncsdlNTE3MDJ8MA&ixlib=rb-4-1.0&q=80&w=1080";
   const todayHighlightRef = React.useRef<{ refresh: () => void }>(null);
@@ -267,6 +269,8 @@ function FeatureItem({ title, icon, color, span = "col-span-1" }: FeatureItemPro
  * FeatureGrid - 功能入口网格组件
  */
 function FeatureGrid() {
+  const router = useRouter();
+
   return (
     <div className="grid grid-cols-4 gap-3">
       <FeatureItem
@@ -291,6 +295,7 @@ function FeatureGrid() {
       />
       <motion.div
         whileTap={{ scale: 0.98 }}
+        onClick={() => router.push("/chat")}
         className="col-span-4 bg-slate-900 rounded-[24px] p-4 flex items-center justify-between shadow-xl shadow-slate-200 cursor-pointer relative overflow-hidden"
       >
         <div className="absolute top-0 right-0 w-24 h-24 bg-[#FE8F39]/10 rounded-full blur-2xl -mr-8 -mt-8" />

@@ -49,6 +49,20 @@ service/
 └── .gitignore
 ```
 
+## 启动脚本
+
+由于 `uvicorn --reload` 在 Windows 下会通过 multiprocessing spawn 子进程，`Ctrl+C` 通常只终止主进程，子进程可能残留并继续占用端口。项目中提供了三个脚本来解决此问题：
+
+| 脚本 | 用途 |
+|------|------|
+| `start.bat` | 先清理旧进程，再启动服务 |
+| `stop.bat` | 只杀掉 8000 端口上的残留进程 |
+| `restart.bat` | 一键重启（最常用） |
+
+直接双击运行即可。
+
+> ⚠️ 切勿在残留旧进程的情况下直接 `Ctrl+C` 重启，否则会导致多个旧进程同时占用端口和内存，加载旧代码。始终使用 `restart.bat` 重启。
+
 ## 快速开始 (Windows)
 
 ### 1. 安装依赖
@@ -69,8 +83,11 @@ pip install -r requirements.txt
 # 进入项目目录
 cd service
 
-# 启动服务
-python -m uvicorn app.main:app --reload
+# 一键重启（推荐）
+restart.bat
+
+# 或手动启动
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 服务启动后访问 http://localhost:8000/docs 查看 API 文档。
@@ -163,10 +180,10 @@ PostgreSQL (存储)
 
 ## 数据库表结构
 
-- **user** - 用户表
-- **user_preference** - 用户偏好表
-- **user_clothes** - 用户衣服表
-- **outfit_record** - 穿搭记录表
+- **users** - 用户表
+- **user_profiles** - 用户画像表
+- **clothing_items** - 用户衣物表
+- **outfit_histories** - 穿搭记录表
 - **outfit_feedback** - 穿搭反馈表
 
 详见 [schema.sql](schema.sql)
