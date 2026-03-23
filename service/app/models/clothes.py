@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Enum, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -43,15 +43,11 @@ class UserClothes(Base):
     image_url = Column(String(512), nullable=False)
     category = Column(Enum(ClothesCategory), nullable=False)
     color = Column(String(32), nullable=False)
-    material = Column(String(64), nullable=True)
     temperature_range = Column(Enum(TemperatureRange), nullable=False)
     scene = Column(Enum(Scene), nullable=True)
     wear_method = Column(Enum(WearMethod), nullable=True)
     brand = Column(String(128), nullable=True)
     description = Column(Text, nullable=True)
-    generated_image_url = Column(String(512), nullable=True)
-    analysis_completed = Column(Boolean, default=False)
-    generated_completed = Column(Boolean, default=False)
     create_time = Column(DateTime, default=datetime.now)
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

@@ -10,7 +10,7 @@ class PlanAgent:
 
     def generate_schemes(self, user_id: str, temperature: float, city: str, scene: str = "daily") -> List[Dict]:
         schemes = []
-        scheme_id = str(uuid.uuidint())[:8]
+        scheme_id = str(uuid.uuid4())[:8]
 
         temp_category = self._get_temp_category(temperature)
         color_palettes = self._get_color_palettes(scene, temp_category)

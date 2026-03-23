@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:3000 -o /dev/null -w \"%{http_code}\")",
+      "Bash(curl -s http://localhost:8000/docs -o /dev/null -w \"%{http_code}\")",
+      "Bash(curl:*)",
+      "Bash(psql -U postgres -d outfit_agent -c \"SELECT column_name FROM information_schema.columns WHERE table_name = ''clothing_items'';\")",
+      "Bash(python:*)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill //F //PID 32784)",
+      "Bash(taskkill //F //PID 26080)",
+      "Bash(for pid:*)",
+      "Bash(do taskkill:*)",
+      "Bash(done)",
+      "Bash(wmic process:*)",
+      "Bash(grep -v \"^$\")",
+      "Bash(taskkill //F //PID 3600)",
+      "Bash(taskkill //F //PID 31068)",
+      "Bash(taskkill //F //PID 34012)",
+      "Bash(taskkill //F //PID 19868)",
+      "Bash(taskkill //F //PID 20368)",
+      "Bash(taskkill //F //PID 30524)",
+      "Bash(taskkill //F //PID 6684)",
+      "Bash(taskkill //F //PID 32088)",
+      "Bash(taskkill //F //PID 6264)",
+      "Bash(pip install:*)",
+      "Bash(taskkill //F //PID 9028)",
+      "Bash(taskkill //F //PID 28576)",
+      "Bash(taskkill //F //PID 25932)",
+      "Bash(git add:*)"
+    ]
+  }
+}

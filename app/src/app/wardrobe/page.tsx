@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Shirt, Wind, Crown, Sparkles, Watch } from "lucide-react";
+import { Shirt, Wind, Crown, Sparkles, Watch, Plus, X, Upload, Loader2 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
+import { uploadClothesImage, getClothesList, pollClothesStatus } from "@/lib/api";
+import type { UploadClothesResponse, ClothingItem as ApiClothingItem } from "@/types/api";
 
 type CategoryType = "all" | "top" | "bottom" | "outer" | "inner" | "accessory";
 
@@ -13,6 +15,13 @@ interface ClothingItem {
   category: CategoryType;
   color: string;
   imageUrl: string;
+}
+
+interface AddClothesForm {
+  description: string;
+  color?: string;
+  material?: string;
+  scene?: string;
 }
 
 const mockClothingData: ClothingItem[] = [
@@ -126,13 +135,93 @@ const categoryIcons: Record<CategoryType, React.ReactNode> = {
  */
 export default function WardrobePage() {
   const [activeCategory, setActiveCategory] = useState<CategoryType>("all");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [clothingData, setClothingData] = useState<ClothingItem[]>(mockClothingData);
+  const [form, setForm] = useState<AddClothesForm>({ description: "" });
+
+  // 获取衣物列表
+  const fetchClothingList = async () => {
+    try {
+      const response = await getClothesList();
+      if (response.clothes && response.clothes.length > 0) {
+        const formattedClothes: ClothingItem[] = response.clothes.map((item) => ({
+          id: parseInt(item.id),
+          name: item.sub_category || item.tags.colors?.[0] || "未命名",
+          category: item.category as CategoryType,
+          color: item.tags.colors?.join(", ") || "未知",
+          imageUrl: item.cartoon_image_url || item.original_image_url,
+        }));
+        setClothingData(formattedClothes);
+      }
+    } catch (error) {
+      console.error("获取衣物列表失败:", error);
+      // 保持使用模拟数据
+    }
+  };
+
+  // 组件挂载时获取衣物列表
+  useEffect(() => {
+    fetchClothingList();
+  }, []);
 
   const filteredClothes =
     activeCategory === "all"
-      ? mockClothingData
-      : mockClothingData.filter((item) => item.category === activeCategory);
+      ? clothingData
+      : clothingData.filter((item) => item.category === activeCategory);
 
   const categories: CategoryType[] = ["all", "top", "bottom", "outer", "inner", "accessory"];
+
+  // 处理文件选择
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+      setUploadError(null);
+    }
+  };
+
+  // 处理上传
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      setUploadError("请选择一张图片");
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      const response = await uploadClothesImage(selectedFile, form.description);
+
+      // 轮询等待处理完成
+      await pollClothesStatus(response.clothes_id, 60, 1000);
+
+      // 上传成功，刷新列表
+      await fetchClothingList();
+
+      // 关闭模态框并重置表单
+      closeModal();
+    } catch (error) {
+      console.error("上传失败:", error);
+      setUploadError(error instanceof Error ? error.message : "上传失败，请重试");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // 关闭模态框
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setForm({ description: "" });
+    setUploadError(null);
+  };
 
   return (
     <div className="h-screen bg-[#F1F4F9] font-sans text-slate-900 relative">
@@ -198,6 +287,171 @@ export default function WardrobePage() {
       </main>
 
       <BottomNav />
+
+      {/* 添加衣物按钮 */}
+      <motion.button
+        whileTap={{ scale: 0.95 }}
+        onClick={() => setIsModalOpen(true)}
+        className="fixed bottom-24 right-5 w-14 h-14 bg-[#FE8F39] rounded-full shadow-lg shadow-[#FE8F39]/30 flex items-center justify-center z-20"
+      >
+        <Plus size={24} className="text-white" />
+      </motion.button>
+
+      {/* 上传衣物模态框 */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-30">
+          <motion.div
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            className="bg-white w-full max-w-lg rounded-t-3xl p-6 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-bold text-slate-900">添加衣物</h2>
+              <button
+                onClick={closeModal}
+                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center"
+              >
+                <X size={18} className="text-slate-600" />
+              </button>
+            </div>
+
+            {/* 图片选择和预览 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                上传图片
+              </label>
+              <div
+                className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-colors ${
+                  previewUrl ? "border-[#FE8F39] bg-[#FE8F39]/5" : "border-slate-300 hover:border-[#FE8F39]"
+                }`}
+              >
+                {previewUrl ? (
+                  <div className="relative">
+                    <img
+                      src={previewUrl}
+                      alt="预览"
+                      className="max-h-48 mx-auto rounded-xl"
+                    />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedFile(null);
+                        setPreviewUrl(null);
+                      }}
+                      className="absolute top-2 right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center"
+                    >
+                      <X size={14} className="text-white" />
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <Upload size={32} className="mx-auto text-slate-400 mb-2" />
+                    <p className="text-sm text-slate-600">点击或拖拽上传图片</p>
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  id="file-upload"
+                />
+                <label htmlFor="file-upload" className="absolute inset-0" />
+              </div>
+            </div>
+
+            {/* 衣物信息表单 */}
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  描述
+                </label>
+                <input
+                  type="text"
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="例如：白色棉质T恤"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#FE8F39] transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  颜色（可选）
+                </label>
+                <input
+                  type="text"
+                  value={form.color || ""}
+                  onChange={(e) => setForm({ ...form, color: e.target.value })}
+                  placeholder="例如：白色"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#FE8F39] transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  材质（可选）
+                </label>
+                <input
+                  type="text"
+                  value={form.material || ""}
+                  onChange={(e) => setForm({ ...form, material: e.target.value })}
+                  placeholder="例如：棉质"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#FE8F39] transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  场景（可选）
+                </label>
+                <select
+                  value={form.scene || ""}
+                  onChange={(e) => setForm({ ...form, scene: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:border-[#FE8F39] transition-colors bg-white"
+                >
+                  <option value="">请选择场景</option>
+                  <option value="daily">日常</option>
+                  <option value="work">工作</option>
+                  <option value="formal">正式</option>
+                  <option value="sport">运动</option>
+                  <option value="date">约会</option>
+                  <option value="party">派对</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 错误提示 */}
+            {uploadError && (
+              <div className="mb-4 p-3 bg-red-50 rounded-xl">
+                <p className="text-sm text-red-600">{uploadError}</p>
+              </div>
+            )}
+
+            {/* 上传按钮 */}
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={handleUpload}
+              disabled={isUploading || !selectedFile}
+              className={`w-full py-4 rounded-xl font-bold transition-colors ${
+                isUploading || !selectedFile
+                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : "bg-[#FE8F39] text-white shadow-lg shadow-[#FE8F39]/20"
+              }`}
+            >
+              {isUploading ? (
+                <div className="flex items-center justify-center gap-2">
+                  <Loader2 size={20} className="animate-spin" />
+                  <span>上传中...</span>
+                </div>
+              ) : (
+                "添加衣物"
+              )}
+            </motion.button>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

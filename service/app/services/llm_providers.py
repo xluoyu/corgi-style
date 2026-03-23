@@ -1,8 +1,8 @@
 import os
 from abc import ABC, abstractmethod
 from typing import Any
-from langchain.schema import HumanMessage
-from langchain.chat_models.base import BaseChatModel
+from langchain_core.messages import HumanMessage
+from langchain_core.language_models import BaseChatModel
 
 
 class LLMProvider(ABC):
@@ -29,7 +29,7 @@ class OpenAILLMProvider(LLMProvider):
     
     def analyze_image(self, image_data: bytes, prompt: str) -> dict:
         import base64
-        from langchain.schema import HumanMessage
+        from langchain_core.messages import HumanMessage
         
         base64_image = base64.b64encode(image_data).decode('utf-8')
         
@@ -62,7 +62,7 @@ class AnthropicLLMProvider(LLMProvider):
     
     def analyze_image(self, image_data: bytes, prompt: str) -> dict:
         import base64
-        from langchain.schema import HumanMessage
+        from langchain_core.messages import HumanMessage
         
         base64_image = base64.b64encode(image_data).decode('utf-8')
         
@@ -99,7 +99,7 @@ class LocalLLMProvider(LLMProvider):
     
     def analyze_image(self, image_data: bytes, prompt: str) -> dict:
         import base64
-        from langchain.schema import HumanMessage
+        from langchain_core.messages import HumanMessage
         
         base64_image = base64.b64encode(image_data).decode('utf-8')
         

@@ -36,7 +36,7 @@ class ImageGenerator:
         else:
             content = [{"type": "text", "text": prompt}]
         
-        from langchain.schema import HumanMessage
+        from langchain_core.messages import HumanMessage
         messages = [HumanMessage(content=content)]
         
         response = self.chat_model.invoke(messages)

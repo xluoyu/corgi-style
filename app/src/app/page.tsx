@@ -1,11 +1,13 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Sun, MapPin, Cloud, Sparkles, CloudRain, CloudSnow, CloudFog, Wind, CloudLightning, Thermometer, HelpCircle, RefreshCw } from "lucide-react";
 import { motion } from "motion/react";
-import { BookOpen, Palette, Wand2, Camera, LayoutGrid } from "lucide-react";
+import { BookOpen, Palette, Wand2, Camera, LayoutGrid, Loader2, AlertCircle } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { useWeather, getWeatherIconName } from "@/hooks/useWeather";
+import { generateTodayOutfit, refreshOutfit } from "@/lib/api";
+import type { GenerateOutfitResponse } from "@/types/api";
 
 /**
  * HomePage - 首页组件
@@ -14,6 +16,11 @@ import { useWeather, getWeatherIconName } from "@/hooks/useWeather";
 export default function HomePage() {
   const heroImage =
     "https://images.unsplash.com/photo-1700557478776-952a33fda578?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmYXNoaW9uJTIwbW9kZWxlJTIwc3RyZWV0JTIwc3R5bGUlMjBvdXRmaXR8ZW58MXx8fHwxNzcyncsdlNTE3MDJ8MA&ixlib=rb-4-1.0&q=80&w=1080";
+  const todayHighlightRef = React.useRef<{ refresh: () => void }>(null);
+
+  const handleRefreshOutfit = () => {
+    todayHighlightRef.current?.refresh();
+  };
 
   return (
     <div className="h-screen bg-[#F1F4F9] font-sans text-slate-900 relative">
@@ -35,11 +42,14 @@ export default function HomePage() {
               <h2 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.2em]">
                 今日主打推荐
               </h2>
-              <button className="text-[10px] font-bold text-[#FE8F39] hover:bg-orange-50 px-2.5 py-1 rounded-full transition-colors border border-orange-100">
+              <button
+                onClick={handleRefreshOutfit}
+                className="text-[10px] font-bold text-[#FE8F39] hover:bg-orange-50 px-2.5 py-1 rounded-full transition-colors border border-orange-100"
+              >
                 换一批
               </button>
             </div>
-            <TodayHighlight imageUrl={heroImage} />
+            <TodayHighlight imageUrl={heroImage} ref={todayHighlightRef} />
           </section>
         </div>
       </main>
@@ -307,37 +317,192 @@ function FeatureGrid() {
  */
 interface TodayHighlightProps {
   imageUrl: string;
+  onRefresh?: () => void;
 }
 
-function TodayHighlight({ imageUrl }: TodayHighlightProps) {
+interface TodayHighlightHandle {
+  refresh: () => void;
+}
+
+const TodayHighlight = React.forwardRef<TodayHighlightHandle, TodayHighlightProps>(
+  ({ imageUrl, onRefresh }, ref) => {
+    const { weather, location } = useWeather();
+    const [loading, setLoading] = useState(false);
+    const [outfit, setOutfit] = useState<GenerateOutfitResponse | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchOutfit = async (forceRefresh = false) => {
+      if (!weather || !location || loading) return;
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const temp = parseFloat(weather.temp);
+        const city = location.city;
+        const response = forceRefresh
+          ? await refreshOutfit(city, temp)
+          : await generateTodayOutfit(city, temp);
+        setOutfit(response);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "获取推荐失败");
+        console.error("获取穿搭推荐失败:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    useEffect(() => {
+      // 有错误时不重新请求，等待用户手动重试
+      if (weather && location && !outfit && !loading && !error) {
+        fetchOutfit();
+      }
+    }, [weather, location, outfit, loading, error]);
+
+    const handleRefresh = () => {
+      if (loading) return;
+      fetchOutfit(true);
+      onRefresh?.();
+    };
+
+    React.useImperativeHandle(ref, () => ({
+      refresh: handleRefresh,
+    }));
+
+    if (loading) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative rounded-3xl overflow-hidden shadow-lg flex-1 min-h-0 flex items-center justify-center bg-slate-100"
+      >
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="animate-spin text-[#FE8F39]" size={32} />
+          <p className="text-xs font-medium text-slate-500">AI 正在为您生成穿搭...</p>
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (error) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative rounded-3xl overflow-hidden shadow-lg flex-1 min-h-0 flex items-center justify-center bg-red-50"
+      >
+        <div className="flex flex-col items-center gap-3 p-4 text-center">
+          <AlertCircle className="text-red-400" size={32} />
+          <p className="text-xs font-medium text-red-600">{error}</p>
+          <button
+            onClick={handleRefresh}
+            className="text-xs font-bold text-[#FE8F39] hover:bg-orange-50 px-3 py-1.5 rounded-full transition-colors border border-orange-100"
+          >
+            重试
+          </button>
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (!outfit) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative rounded-3xl overflow-hidden shadow-lg flex-1 min-h-0 group cursor-pointer"
+      >
+        <img src={imageUrl} alt="Today's Recommendation" className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+
+        <div className="absolute bottom-0 left-0 p-4 w-full text-white">
+          <div className="flex justify-between items-end">
+            <div>
+              <div className="bg-white/20 backdrop-blur-md px-2 py-0.5 rounded-lg text-[10px] font-bold inline-block mb-1">
+                AI 场景：周末约会
+              </div>
+              <h2 className="text-lg font-bold leading-tight">春日清新学院风</h2>
+            </div>
+            <button className="w-8 h-8 bg-white text-[#FE8F39] rounded-full flex items-center justify-center shadow-lg">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="5,3 19,12 5,21" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="absolute top-3 right-3 bg-white/10 backdrop-blur-xl p-1.5 rounded-xl border border-white/20">
+          <Sparkles className="text-yellow-300" size={16} />
+        </div>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="relative rounded-3xl overflow-hidden shadow-lg flex-1 min-h-0 group cursor-pointer"
     >
-      <img src={imageUrl} alt="Today's Recommendation" className="w-full h-full object-cover" />
+      {/* AI 生成的模特穿搭图 */}
+      <img
+        src={outfit.image_url}
+        alt="今日穿搭推荐"
+        className="w-full h-full object-cover"
+      />
+
+      {/* 渐变遮罩 */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
 
-      <div className="absolute bottom-0 left-0 p-4 w-full text-white">
-        <div className="flex justify-between items-end">
-          <div>
-            <div className="bg-white/20 backdrop-blur-md px-2 py-0.5 rounded-lg text-[10px] font-bold inline-block mb-1">
-              AI 场景：周末约会
-            </div>
-            <h2 className="text-lg font-bold leading-tight">春日清新学院风</h2>
-          </div>
-          <button className="w-8 h-8 bg-white text-[#FE8F39] rounded-full flex items-center justify-center shadow-lg">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="5,3 19,12 5,21" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
+      {/* AI 标签 */}
       <div className="absolute top-3 right-3 bg-white/10 backdrop-blur-xl p-1.5 rounded-xl border border-white/20">
         <Sparkles className="text-yellow-300" size={16} />
       </div>
+
+      {/* 底部信息 */}
+      <div className="absolute bottom-0 left-0 p-4 w-full text-white">
+        {/* 标签行 */}
+        <div className="flex flex-wrap gap-1 mb-2">
+          <div className="bg-white/20 backdrop-blur-md px-2 py-0.5 rounded-lg text-[10px] font-bold">
+            {weather?.temp}°C
+          </div>
+          <div className="bg-white/20 backdrop-blur-md px-2 py-0.5 rounded-lg text-[10px] font-bold">
+            {outfit.scene === "daily" ? "日常" : outfit.scene === "work" ? "职场" : outfit.scene === "sport" ? "运动" : outfit.scene === "date" ? "约会" : "派对"}
+          </div>
+          {outfit.cached && (
+            <div className="bg-green-500/30 backdrop-blur-md px-2 py-0.5 rounded-lg text-[10px] font-bold">
+              缓存
+            </div>
+          )}
+        </div>
+
+        {/* 描述 */}
+        <h2 className="text-sm font-bold leading-tight mb-3">{outfit.description}</h2>
+
+        {/* 搭配单品 */}
+        {outfit.outfit_items && outfit.outfit_items.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {outfit.outfit_items.map((item, idx) => (
+              <div key={idx} className="bg-white/15 backdrop-blur-sm rounded-lg px-2.5 py-1">
+                <span className="text-[10px] text-white/60">{item.slot}</span>
+                <span className="text-[10px] font-semibold text-white ml-1.5">{item.color} {item.description}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 换一批按钮 */}
+        <button
+          onClick={handleRefresh}
+          className="flex items-center justify-center gap-2 bg-white/20 backdrop-blur-md text-white py-2.5 rounded-full font-bold text-xs border border-white/20 hover:bg-white/30 transition-colors w-full"
+        >
+          <RefreshCw size={12} />
+          换一批
+        </button>
+      </div>
     </motion.div>
   );
-}
+  }
+);
+
+TodayHighlight.displayName = "TodayHighlight";

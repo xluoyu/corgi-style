@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 import oss2
-from langchain.tools import BaseTool
+from langchain_core.tools import BaseTool
 
 
 class OSSUploader:

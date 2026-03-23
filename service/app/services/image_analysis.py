@@ -31,7 +31,7 @@ class ImageAnalyzer:
     ) -> dict:
         base64_image = base64.b64encode(image_data).decode('utf-8')
         
-        from langchain.schema import HumanMessage
+        from langchain_core.messages import HumanMessage
         messages = [
             HumanMessage(
                 content=[
