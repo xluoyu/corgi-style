@@ -65,6 +65,7 @@ COMMENT ON COLUMN user_profiles.default_occasion IS '默认场合，如 casual/w
 CREATE TABLE clothing_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT,
     category TEXT NOT NULL,
     sub_category TEXT,
     original_image_url TEXT NOT NULL,
@@ -72,6 +73,8 @@ CREATE TABLE clothing_items (
     color TEXT,
     material TEXT,
     temperature_range TEXT,
+    wear_method TEXT,
+    scene TEXT,
     tags JSONB NOT NULL DEFAULT '{}',
     wear_count INTEGER DEFAULT 0,
     last_worn_at TIMESTAMPTZ,
@@ -82,7 +85,9 @@ CREATE TABLE clothing_items (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT chk_category CHECK (category IN ('top', 'pants', 'outer', 'inner', 'accessory')),
-    CONSTRAINT chk_temperature_range CHECK (temperature_range IS NULL OR temperature_range IN ('summer', 'spring_autumn', 'winter', 'all_season'))
+    CONSTRAINT chk_temperature_range CHECK (temperature_range IS NULL OR temperature_range IN ('summer', 'spring_autumn', 'winter', 'all_season')),
+    CONSTRAINT chk_wear_method CHECK (wear_method IS NULL OR wear_method IN ('inner_wear', 'outer_wear', 'single_wear', 'layering')),
+    CONSTRAINT chk_scene CHECK (scene IS NULL OR scene IN ('daily', 'work', 'sport', 'date', 'party'))
 );
 
 CREATE INDEX idx_clothing_user_id ON clothing_items(user_id);
@@ -91,10 +96,13 @@ CREATE INDEX idx_clothing_deleted ON clothing_items(is_deleted) WHERE is_deleted
 CREATE INDEX idx_clothing_tags ON clothing_items USING GIN(tags);
 
 COMMENT ON TABLE clothing_items IS '衣物表，核心资产';
+COMMENT ON COLUMN clothing_items.name IS 'AI自动生成的衣物名称，如"黑色纯棉T恤"';
 COMMENT ON COLUMN clothing_items.category IS '一级分类：top/pants/outer/inner/accessory';
 COMMENT ON COLUMN clothing_items.sub_category IS '二级分类：如 t-shirt/shirt/jeans/sneakers';
 COMMENT ON COLUMN clothing_items.original_image_url IS '原始图片URL';
-COMMENT ON COLUMN clothing_items.cartoon_image_url IS '卡通图片URL';
+COMMENT ON COLUMN clothing_items.cartoon_image_url IS '商品图片URL';
+COMMENT ON COLUMN clothing_items.wear_method IS '穿着方式：inner_wear/outer_wear/single_wear/layering';
+COMMENT ON COLUMN clothing_items.scene IS '适用场景：daily/work/sport/date/party';
 COMMENT ON COLUMN clothing_items.tags IS '属性标签JSON，包含 colors/materials/styles/occasions/seasons/thickness';
 COMMENT ON COLUMN clothing_items.is_deleted IS '软删除标记';
 COMMENT ON COLUMN clothing_items.deleted_at IS '删除时间，用于3天后彻底清理';

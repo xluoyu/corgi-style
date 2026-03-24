@@ -45,23 +45,19 @@ export type WearMethod = "casual" | "formal" | "sport";
 export interface ClothingItem {
   id: string;
   user_id: string;
-  category: ClothingCategory;
-  sub_category?: string;
-  original_image_url: string;
-  cartoon_image_url: string;
-  tags: {
-    colors?: string[];
-    materials?: string[];
-    styles?: string[];
-    occasions?: string[];
-    seasons?: string[];
-    thickness?: string;
-  };
-  wear_count: number;
-  last_worn_at?: string;
-  is_deleted: boolean;
+  image_url: string;
+  name?: string;
+  category: string;
+  color: string;
+  material?: string;
+  temperature_range?: string;
+  wear_method?: string;
+  scene?: string;
+  generated_image_url?: string;
+  analysis_completed: boolean;
+  generated_completed: boolean;
+  wear_count?: number;
   created_at: string;
-  updated_at: string;
 }
 
 export interface AddClothesRequest {
@@ -85,7 +81,6 @@ export interface ClothesListResponse {
   clothes: ClothingItem[];
   total: number;
 }
-
 export interface DeleteClothesRequest {
   user_id: string;
   clothes_id: string;

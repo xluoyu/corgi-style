@@ -44,6 +44,8 @@ export function OutfitCard({
   city,
   onClothesClick,
 }: OutfitCardProps) {
+  const hasClothes = clothes && Object.values(clothes).some(Boolean);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -94,56 +96,69 @@ export function OutfitCard({
       </div>
 
       {/* 搭配单品 */}
-      <div className="px-4 pb-3">
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-          搭配单品
-        </div>
-        <div className="grid grid-cols-1 gap-2">
-          {Object.entries(clothes).map(([slot, item]) => {
-            if (!item) return null;
-            return (
-              <button
-                key={slot}
-                onClick={() => onClothesClick?.(item)}
-                className="flex items-center gap-3 p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl transition-colors text-left"
-              >
-                <div className="w-10 h-10 bg-white rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden">
-                  {item.image_url ? (
-                    <img
-                      src={item.image_url}
-                      alt={item.description || item.color}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Shirt size={18} className="text-slate-300" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-[#FE8F39] uppercase">
-                      {slotNames[slot] || slot}
-                    </span>
-                    <span className="text-[10px] text-slate-400">·</span>
-                    <span className="text-[11px] font-semibold text-slate-700 truncate">
-                      {item.color || "未知"}
-                    </span>
+      {hasClothes ? (
+        <div className="px-4 pb-3">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+            搭配单品
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            {Object.entries(clothes).map(([slot, item]) => {
+              if (!item) return null;
+              return (
+                <button
+                  key={slot}
+                  onClick={() => onClothesClick?.(item)}
+                  className="flex items-center gap-3 p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl transition-colors text-left"
+                >
+                  <div className="w-10 h-10 bg-white rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden">
+                    {item.image_url ? (
+                      <img
+                        src={item.image_url}
+                        alt={item.description || item.color}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Shirt size={18} className="text-slate-300" />
+                    )}
                   </div>
-                  {item.description && (
-                    <p className="text-[10px] text-slate-500 truncate mt-0.5">
-                      {item.description}
-                    </p>
-                  )}
-                </div>
-                <div className="text-[10px] text-slate-400">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polyline points="9,18 15,12 9,6" />
-                  </svg>
-                </div>
-              </button>
-            );
-          })}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-[#FE8F39] uppercase">
+                        {slotNames[slot] || slot}
+                      </span>
+                      <span className="text-[10px] text-slate-400">·</span>
+                      <span className="text-[11px] font-semibold text-slate-700 truncate">
+                        {item.color || "未知"}
+                      </span>
+                    </div>
+                    {item.description && (
+                      <p className="text-[10px] text-slate-500 truncate mt-0.5">
+                        {item.description}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="9,18 15,12 9,6" />
+                    </svg>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : plan.missing_advice ? (
+        <div className="px-4 pb-3">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+            搭配建议
+          </div>
+          <div className="bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
+            <p className="text-[12px] text-amber-700 leading-relaxed">
+              {plan.missing_advice}
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {/* 匹配度 */}
       <div className="px-4 py-3 bg-slate-50 border-t border-slate-100">

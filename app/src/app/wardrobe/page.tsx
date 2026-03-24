@@ -2,44 +2,58 @@
 
 import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { Shirt, Wind, Crown, Sparkles, Watch } from "lucide-react";
+import { Shirt, Wind, Crown, Sparkles, Watch, Thermometer } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { getClothesList } from "@/lib/api";
+import { ClothesDetailModal } from "@/app/chat/ClothesDetailModal";
 
-type CategoryType = "all" | "top" | "bottom" | "outer" | "inner" | "accessory";
+type CategoryType = "all" | "top" | "pants" | "outer" | "inner" | "accessory";
 
-interface ClothingItem {
-  id: number;
-  name: string;
-  category: CategoryType;
-  color: string;
-  imageUrl: string;
-  analysisCompleted: boolean;
-  generatedCompleted: boolean;
-}
-
+// 后端返回的原始衣物数据
 interface ApiClothingItem {
-  id: number;
+  id: string;
   user_id: string;
   image_url: string;
+  name?: string;
   category: string;
   color: string;
   material?: string;
-  temperature_range: string;
-  scene?: string;
+  temperature_range?: string;
   wear_method?: string;
-  brand?: string;
-  description?: string;
+  scene?: string;
   generated_image_url?: string;
   analysis_completed: number;
   generated_completed: number;
-  create_time: string;
+  created_at: string;
+}
+
+// 页面内部使用的衣物数据
+interface ClothingItem {
+  id: string;
+  name: string;
+  category: CategoryType;
+  categoryLabel: string;
+  color: string;
+  colorLabel: string;
+  imageUrl: string;
+  material?: string;
+  temperatureRange?: string;
+  temperatureRangeLabel?: string;
+  wearMethod?: string;
+  wearMethodLabel?: string;
+  scene?: string;
+  sceneLabel?: string;
+  analysisCompleted: boolean;
+  generatedCompleted: boolean;
+  wearCount: number;
+  createdAt: string;
+  raw: ApiClothingItem;
 }
 
 const categoryLabels: Record<CategoryType, string> = {
   all: "全部",
   top: "上衣",
-  bottom: "裤子",
+  pants: "裤子",
   outer: "外套",
   inner: "内搭",
   accessory: "配饰",
@@ -48,42 +62,110 @@ const categoryLabels: Record<CategoryType, string> = {
 const categoryIcons: Record<CategoryType, React.ReactNode> = {
   all: <Shirt size={16} />,
   top: <Shirt size={16} />,
-  bottom: <Wind size={16} />,
+  pants: <Wind size={16} />,
   outer: <Crown size={16} />,
   inner: <Sparkles size={16} />,
   accessory: <Watch size={16} />,
 };
 
-/**
- * WardrobePage - 衣柜页面组件
- * 展示用户的衣物列表，支持分类筛选
- */
+const temperatureLabels: Record<string, string> = {
+  summer: "夏季",
+  spring_autumn: "春秋",
+  winter: "冬季",
+  all_season: "四季",
+};
+
+const colorLabels: Record<string, string> = {
+  black: "黑色",
+  white: "白色",
+  red: "红色",
+  blue: "蓝色",
+  gray: "灰色",
+  beige: "米色",
+  brown: "棕色",
+  green: "绿色",
+  purple: "紫色",
+  navy: "藏青色",
+  other: "其他",
+};
+
+const sceneLabels: Record<string, string> = {
+  daily: "日常",
+  work: "工作",
+  sport: "运动",
+  date: "约会",
+  party: "聚会",
+};
+
+const wearMethodLabels: Record<string, string> = {
+  inner_wear: "内穿",
+  outer_wear: "外穿",
+  single_wear: "单穿",
+  layering: "叠穿",
+};
+
+function mapCategory(category: string): CategoryType {
+  const map: Record<string, CategoryType> = {
+    top: "top",
+    pants: "pants",
+    bottom: "pants",
+    outer: "outer",
+    outerwear: "outer",
+    inner: "inner",
+    accessory: "accessory",
+  };
+  return map[category] || "top";
+}
+
+function formatDate(isoString: string): string {
+  try {
+    const d = new Date(isoString);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  } catch {
+    return isoString;
+  }
+}
+
 export default function WardrobePage() {
   const [activeCategory, setActiveCategory] = useState<CategoryType>("all");
   const [clothingData, setClothingData] = useState<ClothingItem[]>([]);
+  const [selectedClothes, setSelectedClothes] = useState<ClothingItem | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
 
-  // 获取衣物列表
   const fetchClothingList = async () => {
     try {
       const response = await getClothesList();
-      if (response.clothes && response.clothes.length > 0) {
-        const formattedClothes: ClothingItem[] = (response.clothes as ApiClothingItem[]).map((item) => ({
+      if (response.clothes && (response.clothes as ApiClothingItem[]).length > 0) {
+        const formatted: ClothingItem[] = (response.clothes as ApiClothingItem[]).map((item) => ({
           id: item.id,
-          name: item.description || "未命名",
+          name: item.name || "未命名衣物",
           category: mapCategory(item.category),
-          color: item.color,
-          imageUrl: item.generated_image_url || item.image_url,
+          categoryLabel: categoryLabels[mapCategory(item.category)],
+          color: item.color || "unknown",
+          colorLabel: colorLabels[item.color] || item.color || "未知",
+          imageUrl: item.generated_image_url || item.image_url || "",
+          material: item.material,
+          temperatureRange: item.temperature_range,
+          temperatureRangeLabel: temperatureLabels[item.temperature_range] || item.temperature_range || "",
+          wearMethod: item.wear_method,
+          wearMethodLabel: wearMethodLabels[item.wear_method] || item.wear_method || "",
+          scene: item.scene,
+          sceneLabel: sceneLabels[item.scene] || item.scene || "",
           analysisCompleted: item.analysis_completed === 1,
           generatedCompleted: item.generated_completed === 1,
+          wearCount: item.wear_count || 0,
+          createdAt: formatDate(item.created_at),
+          raw: item,
         }));
-        setClothingData(formattedClothes);
+        setClothingData(formatted);
+      } else {
+        setClothingData([]);
       }
     } catch (error) {
       console.error("获取衣物列表失败:", error);
     }
   };
 
-  // 组件挂载时获取衣物列表
   useEffect(() => {
     fetchClothingList();
   }, []);
@@ -93,7 +175,13 @@ export default function WardrobePage() {
       ? clothingData
       : clothingData.filter((item) => item.category === activeCategory);
 
-  const categories: CategoryType[] = ["all", "top", "bottom", "outer", "inner", "accessory"];
+  // 根据真实数据动态生成分类标签
+  const presentCategories: CategoryType[] = ["all", ...new Set(clothingData.map((c) => c.category))];
+
+  const handleCardClick = (item: ClothingItem) => {
+    setSelectedClothes(item);
+    setModalOpen(true);
+  };
 
   return (
     <div className="h-screen bg-[#F1F4F9] font-sans text-slate-900 relative">
@@ -113,7 +201,7 @@ export default function WardrobePage() {
             </div>
 
             <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-              {categories.map((cat) => (
+              {presentCategories.map((cat) => (
                 <motion.button
                   key={cat}
                   whileTap={{ scale: 0.95 }}
@@ -146,24 +234,32 @@ export default function WardrobePage() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100"
+                    className="bg-white rounded-2xl overflow-hidden shadow-sm border border-slate-100 cursor-pointer"
+                    onClick={() => handleCardClick(item)}
                   >
                     <div className="aspect-[3/4] relative overflow-hidden">
-                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
-                      {!item.analysisCompleted && (
-                        <div className="absolute top-2 right-2">
-                          <span className="bg-[#FE8F39] text-white px-2 py-1 rounded-full text-[10px] font-bold shadow-lg">
-                            识别中...
-                          </span>
+                      {item.imageUrl ? (
+                        <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-slate-100">
+                          <Shirt size={40} className="text-slate-300" />
                         </div>
                       )}
-                      <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg">
-                        <span className="text-[10px] font-bold text-slate-700">{item.color}</span>
-                      </div>
+                      {item.temperatureRangeLabel && (
+                        <div className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg flex items-center gap-1">
+                          <Thermometer size={10} className="text-[#FE8F39]" />
+                          <span className="text-[10px] font-bold text-slate-700">{item.temperatureRangeLabel}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="p-3">
                       <h3 className="text-sm font-bold text-slate-800 truncate">{item.name}</h3>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{categoryLabels[item.category]}</p>
+                      <div className="flex items-center justify-between mt-0.5">
+                        <p className="text-[10px] text-slate-400">{item.categoryLabel}</p>
+                        {item.colorLabel && item.colorLabel !== "未知" && (
+                          <span className="text-[10px] text-slate-400">{item.colorLabel}</span>
+                        )}
+                      </div>
                     </div>
                   </motion.div>
                 ))}
@@ -174,22 +270,14 @@ export default function WardrobePage() {
       </main>
 
       <BottomNav />
+
+      {selectedClothes && (
+        <ClothesDetailModal
+          isOpen={modalOpen}
+          onClose={() => setModalOpen(false)}
+          clothes={selectedClothes}
+        />
+      )}
     </div>
   );
-}
-
-/**
- * 映射后端类别到前端类别
- */
-function mapCategory(category: string): CategoryType {
-  const categoryMap: Record<string, CategoryType> = {
-    top: "top",
-    pants: "bottom",
-    bottom: "bottom",
-    outer: "outer",
-    outerwear: "outer",
-    inner: "inner",
-    accessory: "accessory",
-  };
-  return categoryMap[category] || "top";
 }

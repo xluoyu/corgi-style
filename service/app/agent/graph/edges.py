@@ -1,22 +1,29 @@
 """条件分支函数"""
-from typing import Literal
+from typing import Literal, Optional
 from app.agent.graph.state import GraphState, Intent
 
 
+def _get_intent_str(state: GraphState) -> Optional[str]:
+    """安全获取 intent 字符串值（兼容 Intent 枚举和 astream 部分更新）"""
+    raw = state.get("intent_str") or state.get("intent")
+    if raw is None:
+        return None
+    if hasattr(raw, "value"):
+        return raw.value
+    if isinstance(raw, str):
+        return raw
+    return str(raw)
+
+
 def route_by_intent(state: GraphState) -> Literal["wardrobe_query", "generate_outfit", "feedback", "response"]:
-    """
-    根据意图类型路由
+    """根据意图类型路由"""
+    intent_str = _get_intent_str(state)
 
-    Returns:
-        下一个节点的名称
-    """
-    intent = state.get("intent", Intent.UNKNOWN)
-
-    if intent == Intent.QUERY_WARDROBE:
+    if intent_str == "query_wardrobe":
         return "wardrobe_query"
-    elif intent == Intent.GENERATE_OUTFIT:
+    elif intent_str == "generate_outfit":
         return "generate_outfit"
-    elif intent == Intent.GIVE_FEEDBACK:
+    elif intent_str == "give_feedback":
         return "feedback"
     else:
         return "response"
@@ -24,15 +31,21 @@ def route_by_intent(state: GraphState) -> Literal["wardrobe_query", "generate_ou
 
 def route_by_score(state: GraphState) -> Literal["high_score", "low_score"]:
     """
-    根据匹配分数路由
+    根据匹配分数路由，附带重试上限保护。
 
     Returns:
-        "high_score" 如果分数 >= 80
-        "low_score" 如果分数 < 80
+        "high_score" 如果分数 >= 60
+        "low_score" 如果分数 < 60 且重试次数 < 3
+        "high_score" 如果重试次数已达 3 次（强制退出，防止无限循环）
     """
     score = state.get("match_score", 0)
+    history = state.get("adjustment_history", [])
 
-    if score >= 80:
+    # 重试次数已达上限，强制退出循环
+    if len(history) >= 3:
+        return "high_score"
+
+    if score >= 60:
         return "high_score"
     else:
         return "low_score"

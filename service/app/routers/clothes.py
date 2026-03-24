@@ -21,6 +21,9 @@ class AddClothesRequest(BaseModel):
     category: str
     color: str
     temperature_range: str
+    name: Optional[str] = None
+    wear_method: Optional[str] = None
+    scene: Optional[str] = None
 
 
 class AddClothesResponse(BaseModel):
@@ -32,17 +35,17 @@ class ClothesItem(BaseModel):
     id: str
     user_id: str
     image_url: str
+    name: Optional[str] = None
     category: str
     color: str
     material: Optional[str] = None
     temperature_range: str
-    scene: Optional[str]
-    wear_method: Optional[str]
-    brand: Optional[str]
-    description: Optional[str]
+    wear_method: Optional[str] = None
+    scene: Optional[str] = None
     generated_image_url: Optional[str]
     analysis_completed: bool
     generated_completed: bool
+    wear_count: int = 0
     created_at: datetime
 
     class Config:
@@ -84,9 +87,12 @@ def add_clothes(request: AddClothesRequest, db: Session = Depends(get_db)):
     clothes = UserClothes(
         user_id=request.user_id,
         original_image_url=request.image_url,
+        name=request.name,
         category=category,
         color=request.color,
         temperature_range=temperature_range,
+        wear_method=request.wear_method,
+        scene=request.scene,
         tags="{}",
         analysis_completed=0,
         generated_completed=0
@@ -124,17 +130,17 @@ def list_clothes(
             id=str(c.id),
             user_id=str(c.user_id),
             image_url=oss_uploader.get_signed_url(c.original_image_url) if c.original_image_url else (oss_uploader.get_signed_url(c.cartoon_image_url) if c.cartoon_image_url else ""),
+            name=c.name,
             category=c.category,
             color=c.color or "",
             material=c.material,
             temperature_range=c.temperature_range or "",
-            scene=None,
-            wear_method=None,
-            brand=None,
-            description=None,
+            wear_method=c.wear_method,
+            scene=c.scene,
             generated_image_url=oss_uploader.get_signed_url(c.cartoon_image_url) if c.cartoon_image_url else None,
             analysis_completed=c.analysis_completed == 1,
             generated_completed=c.generated_completed == 1,
+            wear_count=c.wear_count or 0,
             created_at=c.created_at
         ) for c in clothes_list],
         total=len(clothes_list)
@@ -236,11 +242,14 @@ def get_clothes_status(
 
     return {
         "clothes_id": str(clothes.id),
+        "name": clothes.name,
         "analysis_completed": clothes.analysis_completed,
         "generated_completed": clothes.generated_completed,
         "generated_image_url": oss_uploader.get_signed_url(clothes.cartoon_image_url) if clothes.cartoon_image_url else None,
         "color": clothes.color,
         "category": clothes.category,
         "material": clothes.material,
-        "temperature_range": clothes.temperature_range
+        "temperature_range": clothes.temperature_range,
+        "wear_method": clothes.wear_method,
+        "scene": clothes.scene
     }

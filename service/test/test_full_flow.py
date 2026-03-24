@@ -30,9 +30,10 @@ async def _rerun_analysis(image_data: bytes, user_id: str, clothes_id: str, db):
 
     agent = ClothesAgent()
 
-    # 分析图片
+    # 分析图片（使用签名 URL）
     print("[分析] 调用视觉模型分析图片...")
-    analysis_result = await agent.analyze_clothes(image_data, user_id)
+    signed_url = oss_uploader.get_signed_url(str(clothes.original_image_url))
+    analysis_result = await agent.analyze_clothes(str(clothes.original_image_url), user_id)
     analysis = analysis_result["result"]
     print(f"[分析] 结果: {analysis}")
 
@@ -51,7 +52,8 @@ async def _rerun_analysis(image_data: bytes, user_id: str, clothes_id: str, db):
         return
 
     clothes.analysis_completed = 1
-    clothes.color = analysis.get('color', '未知')
+    clothes.name = analysis.get('name')
+    clothes.color = analysis.get('color', 'unknown')
     clothes.material = analysis.get('material')
 
     try:
@@ -64,11 +66,15 @@ async def _rerun_analysis(image_data: bytes, user_id: str, clothes_id: str, db):
     except (ValueError, TypeError):
         clothes.temperature_range = 'all_season'
 
+    clothes.wear_method = analysis.get('wear_method')
+    clothes.scene = analysis.get('scene')
+
     clothes.cartoon_image_url = generated_path
     clothes.generated_completed = 1
     db.commit()
 
-    print(f"[更新] color={clothes.color}, category={clothes.category}, material={clothes.material}")
+    print(f"[更新] name={clothes.name}, color={clothes.color}, category={clothes.category}")
+    print(f"[更新] material={clothes.material}, wear_method={clothes.wear_method}, scene={clothes.scene}")
     print(f"[更新] 商品图路径已写入数据库")
     print(f"[签名] 商品图签名URL: {oss_uploader.get_signed_url(generated_path)}")
 

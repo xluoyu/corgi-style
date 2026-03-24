@@ -20,6 +20,8 @@ def calculate_match_score(
         return 0.0
 
     items = plan.get("items", {})
+    if not isinstance(items, dict):
+        return 0.0
     if not items:
         return 0.0
 
@@ -74,6 +76,8 @@ def evaluate_outfit(
     score = calculate_match_score(plan, selected_clothes)
 
     items = plan.get("items", {})
+    if not isinstance(items, dict):
+        items = {}
     missing_items = []
     temperature_warning = None
 

@@ -1,4 +1,5 @@
 """衣物检索节点"""
+import asyncio
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from app.agent.graph.state import GraphState
@@ -10,45 +11,70 @@ def retrieve_by_scheme(
     db: Session,
     user_id: str,
     plan: Dict[str, Any],
-    temperature: Optional[float] = None
+    temperature: Optional[float] = None,
+    available_categories: List[str] = None
 ) -> Dict[str, Optional[Dict]]:
     """
-    按穿搭方案检索衣物
+    按穿搭方案检索衣物（批量优化版）
 
-    Args:
-        db: 数据库会话
-        user_id: 用户ID
-        plan: 穿搭方案（包含 items）
-        temperature: 温度
-
-    Returns:
-        每个品类的最佳匹配衣物
+    只检索衣柜中已有的品类（available_categories），
+    缺失品类返回 None，由 LLM 的 missing_advice 字段提供文字建议。
     """
     result = {}
     items = plan.get("items", {})
 
-    # 获取温度范围
+    if not isinstance(items, dict):
+        return result
+
+    if available_categories is None:
+        available_categories = list(available_categories or [])
+
+    # 收集所有需要的品类（只限于衣柜中已有的）
+    categories_needed = set()
+    color_hints = {}
+    for item_name, item_info in items.items():
+        category = item_info.get("category")
+        if category and category in available_categories:
+            categories_needed.add(category)
+            if item_info.get("color"):
+                color_hints[category] = item_info.get("color")
+
+    if not categories_needed:
+        # 所有品类都是缺失的，不需要查询数据库
+        for item_name, item_info in items.items():
+            result[item_name] = None
+        return result
+
+    # 温度范围
     temp_ranges = _get_temp_ranges(temperature) if temperature else None
 
+    # 一次查询获取所有品类的衣物
+    query = db.query(UserClothes).filter(
+        UserClothes.user_id == user_id,
+        UserClothes.category.in_(categories_needed),
+        UserClothes.is_deleted == False
+    )
+    if temp_ranges:
+        query = query.filter(UserClothes.temperature_range.in_(temp_ranges))
+
+    all_clothes = query.all()
+
+    # 按品类分组
+    from collections import defaultdict
+    clothes_by_category = defaultdict(list)
+    for c in all_clothes:
+        clothes_by_category[c.category].append(c)
+
+    # 对每个 slot 匹配最佳衣物
     for item_name, item_info in items.items():
         category = item_info.get("category")
         expected_color = item_info.get("color")
 
-        if not category:
+        if not category or category not in clothes_by_category:
+            result[item_name] = None
             continue
 
-        # 构建查询
-        query = db.query(UserClothes).filter(
-            UserClothes.user_id == user_id,
-            UserClothes.category == category,
-            UserClothes.is_deleted == False
-        )
-
-        # 温度过滤
-        if temp_ranges:
-            query = query.filter(UserClothes.temperature_range.in_(temp_ranges))
-
-        clothes_list = query.all()
+        clothes_list = clothes_by_category[category]
 
         # 颜色匹配
         matched = None
@@ -58,8 +84,9 @@ def retrieve_by_scheme(
                     matched = _clothes_to_dict(clothes)
                     break
 
-        # 如果没找到精确匹配，取第一件
+        # 没找到精确匹配，取穿着次数最少的那件（鼓励轮换穿着）
         if not matched and clothes_list:
+            clothes_list.sort(key=lambda c: c.wear_count or 0)
             matched = _clothes_to_dict(clothes_list[0])
 
         result[item_name] = matched
@@ -106,22 +133,21 @@ async def clothes_retrieval_node(state: GraphState, db: Session) -> GraphState:
     """
     衣物检索节点
 
-    根据穿搭方案从用户衣柜检索具体衣物
+    只从衣柜中已有品类检索衣物，缺失品类由 LLM missing_advice 提供文字建议。
     """
     user_id = state["user_id"]
     outfit_plan = state.get("outfit_plan")
     temperature = state.get("target_temperature")
+    available_categories = state.get("available_categories", [])
 
     if not outfit_plan:
         state["error"] = "没有穿搭方案，无法检索衣物"
         return state
 
     try:
-        selected_clothes = retrieve_by_scheme(
-            db=db,
-            user_id=user_id,
-            plan=outfit_plan,
-            temperature=temperature
+        # 用 to_thread 避免阻塞事件循环，只检索可用品类
+        selected_clothes = await asyncio.to_thread(
+            retrieve_by_scheme, db, user_id, outfit_plan, temperature, available_categories
         )
         state["selected_clothes"] = selected_clothes
     except Exception as e:

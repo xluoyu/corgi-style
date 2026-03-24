@@ -1,8 +1,20 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 from app.database import init_db
 from app.routers import user_router, clothes_router, outfit_router, outfit_history_router
 from app.routers.chat import router as chat_router
+
+# 配置日志：让 LLM 调用日志输出到终端
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S"
+)
+uvicorn_access_logger = logging.getLogger("uvicorn.access")
+uvicorn_access_logger.setLevel(logging.WARNING)
+httpx_logger = logging.getLogger("httpx")
+httpx_logger.setLevel(logging.WARNING)
 
 app = FastAPI(
     title="AI 穿搭 Agent 系统",

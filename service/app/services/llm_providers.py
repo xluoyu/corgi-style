@@ -1,6 +1,7 @@
 import os
 from abc import ABC, abstractmethod
-from typing import Any
+from functools import lru_cache
+from typing import Any, Tuple
 from langchain_core.messages import HumanMessage
 from langchain_core.language_models import BaseChatModel
 
@@ -16,15 +17,16 @@ class LLMProvider(ABC):
 
 
 class OpenAILLMProvider(LLMProvider):
-    def __init__(self, model: str = "gpt-4o", api_key: str = None, base_url: str = None):
+    def __init__(self, model: str = "gpt-4o", api_key: str = None, base_url: str = None, timeout: float = 60.0):
         from langchain_openai import ChatOpenAI
-        
+
         self.model = model
         self.chat_model = ChatOpenAI(
             model=model,
             api_key=api_key,
             base_url=base_url,
-            temperature=0
+            temperature=0,
+            request_timeout=timeout
         )
     
     def analyze_image(self, image_data: bytes, prompt: str) -> dict:
@@ -83,26 +85,40 @@ class AnthropicLLMProvider(LLMProvider):
 
 
 class LocalLLMProvider(LLMProvider):
-    def __init__(self, model: str = "qwen-plus", base_url: str = None, api_key: str = None):
+    def __init__(self, model: str = None, base_url: str = None, api_key: str = None, timeout: float = 60.0):
         from langchain_openai import ChatOpenAI
-        
-        self.model = model
+
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL", "http://localhost:8000/v1")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY", "not-needed")
-        
+
+        # chat_model：纯文本模型，用于 intent/planning 等文本任务
+        text_model = model or os.getenv("TEXT_MODEL", "qwen-plus")
         self.chat_model = ChatOpenAI(
-            model=model,
+            model=text_model,
             base_url=self.base_url,
             api_key=self.api_key,
-            temperature=0
+            temperature=0,
+            request_timeout=timeout,
+            streaming=False
         )
-    
+
+        # vision_model：VL 模型，仅用于 analyze_image
+        vision_model = os.getenv("VISION_MODEL", "qwen-vl-plus")
+        self.vision_model = ChatOpenAI(
+            model=vision_model,
+            base_url=self.base_url,
+            api_key=self.api_key,
+            temperature=0,
+            request_timeout=timeout,
+            streaming=False
+        )
+
     def analyze_image(self, image_data: bytes, prompt: str) -> dict:
         import base64
         from langchain_core.messages import HumanMessage
-        
+
         base64_image = base64.b64encode(image_data).decode('utf-8')
-        
+
         messages = [
             HumanMessage(
                 content=[
@@ -111,12 +127,12 @@ class LocalLLMProvider(LLMProvider):
                 ]
             )
         ]
-        
-        response = self.chat_model.invoke(messages)
+
+        response = self.vision_model.invoke(messages)
         return response.content
-    
+
     def get_provider_name(self) -> str:
-        return f"local-{self.model}"
+        return f"local-text"
 
 
 def create_llm_provider(provider_type: str = None, **kwargs) -> LLMProvider:
@@ -135,12 +151,49 @@ def create_llm_provider(provider_type: str = None, **kwargs) -> LLMProvider:
         )
     elif provider_type == "local":
         base_url = kwargs.get("base_url") or os.getenv("OPENAI_BASE_URL")
-        model = kwargs.get("model", os.getenv("VISION_MODEL", "qwen-vl-plus-2025-01-08"))
-        api_key = kwargs.get("api_key", os.getenv("OPENAI_API_KEY"))
+        api_key = kwargs.get("api_key") or os.getenv("OPENAI_API_KEY")
+        timeout = float(os.getenv("LLM_TIMEOUT", "60"))
         return LocalLLMProvider(
-            model=model,
+            model=kwargs.get("model") or os.getenv("TEXT_MODEL", "qwen-plus"),
             base_url=base_url,
-            api_key=api_key
+            api_key=api_key,
+            timeout=timeout
         )
     else:
         raise ValueError(f"Unknown LLM provider: {provider_type}")
+
+
+@lru_cache(maxsize=4)
+def get_cached_provider(provider_type: str = None, **kwargs) -> LLMProvider:
+    """
+    获取缓存的 LLM Provider 实例。
+
+    使用 lru_cache 避免每次调用都重新：
+    - 读取 os.getenv()
+    - 执行条件 import（ChatOpenAI, ChatAnthropic 等）
+    - 创建新的模型实例
+
+    同一 (provider_type, base_url, model, api_key) 组合只创建一次。
+    """
+    # 预填充所有 kwargs，避免 os.getenv 重复读取
+    resolved_kwargs = {}
+    for key, default in [
+        ("base_url", None),
+        ("model", None),
+        ("api_key", None),
+    ]:
+        if key in kwargs:
+            resolved_kwargs[key] = kwargs[key]
+        elif key == "model":
+            env_map = {
+                "openai": "OPENAI_MODEL",
+                "anthropic": None,
+                "local": "TEXT_MODEL",
+            }
+            env_key = env_map.get(provider_type or "local")
+            resolved_kwargs[key] = os.getenv(env_key) if env_key else None
+        elif key == "api_key":
+            env_key = "OPENAI_API_KEY" if provider_type != "anthropic" else "ANTHROPIC_API_KEY"
+            resolved_kwargs[key] = os.getenv(env_key)
+
+    return create_llm_provider(provider_type, **resolved_kwargs)

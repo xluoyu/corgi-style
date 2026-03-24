@@ -42,6 +42,7 @@ class UserClothes(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(100), nullable=True)          # AI 自动生成的衣物名称
     category = Column(String(50), nullable=False)
     sub_category = Column(String(100), nullable=True)
     original_image_url = Column(String(500), nullable=False)
@@ -49,6 +50,8 @@ class UserClothes(Base):
     color = Column(String(32), nullable=True)
     material = Column(String(64), nullable=True)
     temperature_range = Column(String(50), nullable=True)
+    wear_method = Column(String(50), nullable=True)     # 穿着方式
+    scene = Column(String(50), nullable=True)           # 适用场景
     tags = Column(Text, nullable=False, default="{}")
     wear_count = Column(Integer, default=0)
     last_worn_at = Column(DateTime, nullable=True)

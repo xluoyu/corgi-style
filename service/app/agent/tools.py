@@ -37,8 +37,12 @@ class RetrievalTool:
     def retrieve_by_scheme(self, user_id: str, scheme: Dict, temperature: float) -> Dict[str, Optional[UserClothes]]:
         result = {}
         temp_ranges = self._get_temp_ranges(temperature)
+        items = scheme.get("items", {})
 
-        for item_name, item_info in scheme.get("items", {}).items():
+        if not isinstance(items, dict):
+            return result
+
+        for item_name, item_info in items.items():
             category = item_info.get("category")
             color = item_info.get("color")
 

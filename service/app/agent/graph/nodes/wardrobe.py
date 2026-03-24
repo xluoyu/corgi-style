@@ -1,4 +1,6 @@
 """衣柜查询节点"""
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from app.agent.graph.state import GraphState
@@ -163,32 +165,25 @@ async def wardrobe_query_node(state: GraphState, db: Session) -> GraphState:
     # 获取查询参数
     category = entities.get("clothes_category")
     if not category:
-        # 尝试从中文映射
         category = entities.get("category")
 
     color = entities.get("clothes_color")
     temperature = state.get("target_temperature")
 
-    # 根据意图决定查询方式
-    if intent == "query_wardrobe" or (intent == "unknown" and entities.get("query_type") == "count"):
-        # 统计查询
-        stats = get_wardrobe_stats(db, user_id)
-        state["context"] = state.get("context", {})
-        state["context"]["wardrobe_stats"] = stats
-        state["user_clothes"] = []
+    intent_str = state.get("intent_str")
 
+    if intent_str == "query_wardrobe" or (intent_str == "unknown" and entities.get("query_type") == "count"):
+        # 统计查询（用 to_thread 避免阻塞事件循环）
+        stats = await asyncio.to_thread(get_wardrobe_stats, db, user_id)
+        state["wardrobe_stats"] = stats
+        state["user_clothes"] = []
     else:
-        # 普通查询
-        clothes_list = query_wardrobe(
-            db=db,
-            user_id=user_id,
-            category=category,
-            color=color,
-            temperature=temperature
+        # 普通查询（用 to_thread 避免阻塞事件循环）
+        clothes_list = await asyncio.to_thread(
+            query_wardrobe, db, user_id, category, color, temperature
         )
         state["user_clothes"] = clothes_list
 
-        # 按品类分组
         filtered_clothes = {}
         for c in clothes_list:
             cat = c["category"]

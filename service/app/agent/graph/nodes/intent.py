@@ -1,8 +1,11 @@
 """意图识别节点"""
+import logging
 from typing import Dict, Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.agent.graph.state import GraphState, Intent
-from app.services.llm_providers import create_llm_provider
+from app.services.llm_providers import get_cached_provider
+
+logger = logging.getLogger(__name__)
 
 
 INTENT_SYSTEM_PROMPT = """你是一个穿搭助手，需要理解用户的穿衣需求。
@@ -28,8 +31,14 @@ INTENT_SYSTEM_PROMPT = """你是一个穿搭助手，需要理解用户的穿衣
 注意：
 - "后天去北京参加晚宴" → date=后天+2天, city=北京, scene=party
 - "帮我看看蓝色的短袖怎么搭" → clothes_color=蓝色, clothes_category=top, intent=get_advice
-- "我衣柜里有几件衬衫？" → query_type=count, category=衬衫→top, intent=query_wardrobe
+- "我衣柜里有几件衬衫？" → category=衬衫→top, intent=query_wardrobe
 - "太正式了，换个休闲点的" → intent=give_feedback, feedback_type=too_formal, target_scene=casual
+- "看看我衣柜里有什么" → intent=query_wardrobe
+- "明天去杭州出差穿什么" → date=明天, city=杭州, scene=work
+- "我想要休闲一点的风格" → intent=generate_outfit, style=casual
+- "约会穿什么好" → intent=generate_outfit, scene=date
+- "你那叫什么" → intent=unknown（穿搭助手闲聊）
+- "你好呀" → intent=unknown（礼貌回复即可）
 
 输出JSON格式，只输出JSON，不要有其他文字。"""
 
@@ -42,6 +51,8 @@ def create_intent_prompt(message: str, context: Dict[str, Any] = None) -> str:
             context_info += f"\n用户之前提到的城市：{context['target_city']}"
         if context.get("target_scene"):
             context_info += f"\n用户之前提到的场景：{context['target_scene']}"
+        if context.get("target_date"):
+            context_info += f"\n用户之前提到的日期：{context['target_date']}"
 
     return f"{INTENT_SYSTEM_PROMPT}\n\n用户输入：{message}{context_info}"
 
@@ -153,12 +164,14 @@ async def intent_node(state: GraphState) -> GraphState:
 
     # 调用 LLM
     try:
-        llm = create_llm_provider()
+        llm = get_cached_provider()
         chat_model = llm.chat_model
 
+        logger.info(f"[LLM] intent识别开始 | message={user_message[:50]}")
         response = await chat_model.ainvoke([
             HumanMessage(content=prompt)
         ])
+        logger.info(f"[LLM] intent识别完成 | response_len={len(response.content)} | response={response.content[:100]}")
 
         result = parse_intent_response(response.content)
     except Exception as e:
@@ -169,9 +182,11 @@ async def intent_node(state: GraphState) -> GraphState:
             "confidence": 0.0
         }
         state["error"] = f"意图识别失败: {str(e)}"
+        logger.error(f"[LLM] intent识别失败 | error={e}")
 
     # 更新状态
     state["intent"] = result["intent"]
+    state["intent_str"] = getattr(result["intent"], "value", None) if result["intent"] else None
     state["entities"] = result["entities"]
     state["intent_confidence"] = result["confidence"]
 

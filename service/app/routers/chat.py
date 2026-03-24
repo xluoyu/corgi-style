@@ -140,13 +140,20 @@ async def chat_message_stream(
             if request.context:
                 _update_context(session, request.context)
 
+            # 加载用户画像（供 LLM 使用）
+            user_profile = _load_user_profile(db, request.user_id)
+
             # 构建初始状态
+            context = _get_context_dict(session)
+            context.update(user_profile)  # 画像数据合并到 context
+
             initial_state: GraphState = {
                 "user_id": request.user_id,
                 "session_id": session.session_id,
                 "messages": [{"role": "user", "content": request.message}],
-                "context": _get_context_dict(session),
+                "context": context,
                 "intent": None,
+                "intent_str": None,
                 "entities": {},
                 "intent_confidence": 0.0,
                 "target_date": session.context.target_date,
@@ -156,6 +163,10 @@ async def chat_message_stream(
                 "user_clothes": [],
                 "filtered_clothes": {},
                 "selected_clothes": {},
+                "wardrobe_stats": None,
+                "available_categories": [],
+                "missing_categories": [],
+                "wardrobe_by_category": {},
                 "outfit_plan": None,
                 "match_score": 0.0,
                 "alternatives": [],
@@ -184,9 +195,31 @@ async def chat_message_stream(
 
             accumulated_text = ""
 
-            async for state in workflow.run_stream(initial_state):
-                # 检测当前节点
-                current_node = state.get("next_node") or state.get("intent")
+            # 累积完整 state（astream 返回 {"node_name": partial_update}）
+            accumulated: GraphState = dict(initial_state)
+
+            async for raw_state in workflow.run_stream(initial_state):
+                # 解析 astream 输出格式：{"node_name": partial_update_dict}
+                if isinstance(raw_state, dict) and len(raw_state) == 1:
+                    node_key = list(raw_state.keys())[0]
+                    partial = list(raw_state.values())[0]
+                    if isinstance(partial, dict):
+                        accumulated.update(partial)
+                else:
+                    accumulated.update(raw_state if isinstance(raw_state, dict) else {})
+
+                state: GraphState = accumulated
+                next_node_val = state.get("next_node")
+                intent_val = state.get("intent")
+                raw_node = next_node_val if next_node_val is not None else intent_val
+
+                # 正确处理 Intent 枚举（继承自 str）：优先用 .value 转为纯字符串
+                if hasattr(raw_node, "value"):
+                    current_node = raw_node.value
+                elif isinstance(raw_node, str) and raw_node not in ("True", "False"):
+                    current_node = raw_node
+                else:
+                    current_node = None
 
                 # 发送思考过程
                 if current_node:
@@ -220,7 +253,7 @@ async def chat_message_stream(
                 # 发送穿搭卡片
                 outfit_plan = state.get("outfit_plan")
                 selected_clothes = state.get("selected_clothes", {})
-                if outfit_plan and selected_clothes and state.get("should_end"):
+                if outfit_plan and selected_clothes and any(selected_clothes.values()) and state.get("should_end"):
                     card_content = {
                         "plan": outfit_plan,
                         "clothes": selected_clothes,
@@ -238,13 +271,21 @@ async def chat_message_stream(
 
                 # 检查是否结束
                 if state.get("should_end"):
-                    # 更新 session 上下文
+                    # 即使是追问回复，也要保存当前已有的信息到 session context
+                    # 这样下一轮对话时可以继承这些信息
                     if state.get("outfit_plan"):
                         _update_context(session, {"current_outfit": state.get("outfit_plan")})
                     if state.get("target_scene"):
                         _update_context(session, {"target_scene": state.get("target_scene")})
                     if state.get("target_temperature"):
                         _update_context(session, {"target_temperature": state.get("target_temperature")})
+                    if state.get("target_date"):
+                        _update_context(session, {"target_date": state.get("target_date")})
+                    if state.get("target_city"):
+                        _update_context(session, {"target_city": state.get("target_city")})
+                    elif state.get("entities", {}).get("city"):
+                        # entities 中有城市信息但 target_city 为空时，也保存
+                        _update_context(session, {"target_city": state.get("entities", {}).get("city")})
 
                     # 添加助手消息到历史
                     response_text = _get_text_message(state)
@@ -314,6 +355,10 @@ def _get_thinking_text(state: GraphState, node: str) -> str:
         score = state.get("match_score", 0)
         return f"当前匹配度 {score}%，正在评估..."
 
+    # 过滤无效 node（防止 state dict 混入）
+    if not isinstance(node, str) or len(node) > 30 or "{" in node:
+        return None
+
     return thinking_map.get(node, f"正在{node}...")
 
 
@@ -348,13 +393,19 @@ async def chat_message(
     if request.context:
         _update_context(session, request.context)
 
+    # 加载用户画像（供 LLM 使用）
+    user_profile = _load_user_profile(db, request.user_id)
+    context = _get_context_dict(session)
+    context.update(user_profile)
+
     # 构建初始状态
     initial_state: GraphState = {
         "user_id": request.user_id,
         "session_id": session.session_id,
         "messages": [{"role": "user", "content": request.message}],
-        "context": _get_context_dict(session),
+        "context": context,
         "intent": None,
+        "intent_str": None,
         "entities": {},
         "intent_confidence": 0.0,
         "target_date": session.context.target_date,
@@ -364,6 +415,10 @@ async def chat_message(
         "user_clothes": [],
         "filtered_clothes": {},
         "selected_clothes": {},
+        "wardrobe_stats": None,
+        "available_categories": [],
+        "missing_categories": [],
+        "wardrobe_by_category": {},
         "outfit_plan": None,
         "match_score": 0.0,
         "alternatives": [],
@@ -385,13 +440,20 @@ async def chat_message(
         # 获取文本消息（用于兼容旧版本）
         response_message = _get_text_message(result)
 
-        # 更新 session 上下文
+        # 即使是追问回复，也要保存当前已有的信息到 session context
+        # 这样下一轮对话时可以继承这些信息
         if result.get("outfit_plan"):
             _update_context(session, {"current_outfit": result.get("outfit_plan")})
         if result.get("target_scene"):
             _update_context(session, {"target_scene": result.get("target_scene")})
         if result.get("target_temperature"):
             _update_context(session, {"target_temperature": result.get("target_temperature")})
+        if result.get("target_date"):
+            _update_context(session, {"target_date": result.get("target_date")})
+        if result.get("target_city"):
+            _update_context(session, {"target_city": result.get("target_city")})
+        elif result.get("entities", {}).get("city"):
+            _update_context(session, {"target_city": result.get("entities", {}).get("city")})
 
         # 添加助手消息到历史
         _add_message(session, "assistant", response_message)
@@ -460,6 +522,24 @@ async def clear_session_context(session_id: str, db: Session = Depends(get_db)):
 # 辅助函数
 # ============================================================
 
+def _load_user_profile(db: Session, user_id: str) -> Dict[str, Any]:
+    """从数据库加载用户画像数据，供 LLM 使用"""
+    from app.models import UserProfile
+    profile = db.query(UserProfile).filter(
+        UserProfile.user_id == user_id
+    ).first()
+
+    if not profile:
+        return {}
+
+    return {
+        "user_gender": profile.gender,  # "男" / "女" / None
+        "user_style": profile.style_preferences,  # 如 "休闲、简约" / None
+        "user_season": profile.season_preference,  # 如 "春秋" / None
+        "user_default_occasion": profile.default_occasion,  # 如 "casual" / None
+    }
+
+
 def _add_message(session: DialogueSessionData, role: str, content: str) -> None:
     """添加消息到 session 历史"""
     from datetime import datetime
@@ -519,8 +599,8 @@ def _build_response_contents(result: GraphState) -> List[ChatResponseItem]:
     if text_msg:
         contents.append(ChatResponseItem(type="text", content=text_msg))
 
-    # 2. 穿搭卡片（如果有穿搭方案）
-    if outfit_plan and selected_clothes:
+    # 2. 穿搭卡片（如果有穿搭方案且有衣物）
+    if outfit_plan and selected_clothes and any(selected_clothes.values()):
         card_content = {
             "plan": outfit_plan,
             "clothes": selected_clothes,

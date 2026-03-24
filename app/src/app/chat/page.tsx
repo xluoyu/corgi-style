@@ -21,6 +21,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [thinkingItems, setThinkingItems] = useState<ThinkingItem[]>([]);
   const [isThinking, setIsThinking] = useState(false);
+  const [thinkingCollapsed, setThinkingCollapsed] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedClothes, setSelectedClothes] = useState<ClothesItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -71,6 +72,7 @@ export default function ChatPage() {
     // 清空思考过程
     setThinkingItems([]);
     setIsThinking(true);
+    setThinkingCollapsed(false);  // 开始时展开
     setError(null);
 
     // 累积的文本
@@ -87,17 +89,23 @@ export default function ChatPage() {
 
       for await (const event of stream) {
         switch (event.event) {
-          case "thinking":
-            setThinkingItems((prev) => [
-              ...prev,
-              {
-                node: event.content.node,
-                node_name: event.content.node_name,
-                text: event.content.text,
-                timestamp: Date.now(),
-              },
-            ]);
+          case "thinking": {
+            // 防御：过滤无效数据（node 应为已知节点名，不含 { 或过长）
+            const rawNode = event.content?.node;
+            const isValidNode = typeof rawNode === "string" && rawNode.length < 50 && !rawNode.includes("{");
+            if (isValidNode) {
+              setThinkingItems((prev) => [
+                ...prev,
+                {
+                  node: rawNode,
+                  node_name: event.content?.node_name ?? rawNode,
+                  text: event.content?.text ?? "",
+                  timestamp: Date.now(),
+                },
+              ]);
+            }
             break;
+          }
 
           case "text":
             accumulatedText += event.content;
@@ -178,6 +186,9 @@ export default function ChatPage() {
             if (event.content.session_id) {
               setSessionId(event.content.session_id);
             }
+            // done 时停止思考并收起面板
+            setThinkingCollapsed(true);
+            setIsThinking(false);
             break;
 
           case "error":
@@ -215,7 +226,12 @@ export default function ChatPage() {
 
       {/* 思考过程区 */}
       <div className="px-4 pt-3">
-        <ThinkingIndicator items={thinkingItems} isThinking={isThinking} />
+        <ThinkingIndicator
+          items={thinkingItems}
+          isThinking={isThinking}
+          collapsed={thinkingCollapsed}
+          onToggle={() => setThinkingCollapsed((c) => !c)}
+        />
       </div>
 
       {/* 错误提示 */}
@@ -280,17 +296,19 @@ export default function ChatPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 快捷输入 */}
-      <div className="px-4 pb-3">
-        <button
-          onClick={() => handleSend("帮我生成今日穿搭")}
-          disabled={isThinking}
-          className="flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 disabled:opacity-50 rounded-full border border-slate-200 shadow-sm transition-colors"
-        >
-          <Zap size={12} className="text-[#FE8F39]" />
-          <span className="text-[12px] font-medium text-slate-600">帮我生成今日穿搭</span>
-        </button>
-      </div>
+      {/* 快捷输入 - 仅无消息时显示 */}
+      {messages.length === 0 && (
+        <div className="px-4 pb-3">
+          <button
+            onClick={() => handleSend("帮我生成今日穿搭")}
+            disabled={isThinking}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 disabled:opacity-50 rounded-full border border-slate-200 shadow-sm transition-colors"
+          >
+            <Zap size={12} className="text-[#FE8F39]" />
+            <span className="text-[12px] font-medium text-slate-600">帮我生成今日穿搭</span>
+          </button>
+        </div>
+      )}
 
       {/* 输入区 */}
       <ChatInput onSend={handleSend} disabled={isThinking} />

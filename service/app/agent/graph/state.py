@@ -29,6 +29,7 @@ class GraphState(TypedDict):
     # === 意图识别结果 ===
     intent: Optional[Intent]
     entities: Dict[str, Any]                       # 提取的实体
+    intent_str: Optional[str]                          # intent 的字符串值（astream 部分更新时保留）
     intent_confidence: float                       # 置信度
 
     # === 穿搭规划 ===
@@ -41,6 +42,10 @@ class GraphState(TypedDict):
     user_clothes: List[Dict[str, Any]]             # 用户衣柜衣物
     filtered_clothes: Dict[str, List[Dict]]        # 按品类过滤后的衣物
     selected_clothes: Dict[str, Optional[Dict]]   # 选中的衣物
+    wardrobe_stats: Optional[Dict[str, Any]]       # 衣柜统计（顶层存储，避免 context 嵌套合并问题）
+    available_categories: List[str]                # 衣柜中已有的品类
+    missing_categories: List[str]                   # 衣柜中缺失的品类
+    wardrobe_by_category: Dict[str, List[Dict]]   # 按品类分组的衣物
 
     # === 穿搭方案 ===
     outfit_plan: Optional[Dict[str, Any]]          # 穿搭方案
@@ -55,3 +60,4 @@ class GraphState(TypedDict):
     next_node: Optional[str]                      # 下一个节点
     error: Optional[str]                           # 错误信息
     should_end: bool                              # 是否结束对话
+    response_data: Optional[Dict[str, Any]]        # 响应附加数据（不出现在路由条件中）

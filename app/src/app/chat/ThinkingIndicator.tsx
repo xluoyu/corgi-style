@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import type { ThinkingItem } from "@/types/chat";
@@ -8,22 +8,23 @@ import type { ThinkingItem } from "@/types/chat";
 interface ThinkingIndicatorProps {
   items: ThinkingItem[];
   isThinking: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
 }
 
 /**
  * ThinkingIndicator - 思考过程显示组件
  * 固定高度，滚动显示AI思考过程
  */
-export function ThinkingIndicator({ items, isThinking }: ThinkingIndicatorProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+export function ThinkingIndicator({ items, isThinking, collapsed, onToggle }: ThinkingIndicatorProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 自动滚动到底部
   useEffect(() => {
-    if (scrollRef.current && !isCollapsed) {
+    if (scrollRef.current && !collapsed) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [items, isThinking, isCollapsed]);
+  }, [items, isThinking, collapsed]);
 
   const nodeColors: Record<string, string> = {
     intent: "text-blue-500",
@@ -45,7 +46,7 @@ export function ThinkingIndicator({ items, isThinking }: ThinkingIndicatorProps)
     <div className="bg-white/60 backdrop-blur-sm border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
       {/* 标题栏 */}
       <button
-        onClick={() => setIsCollapsed(!isCollapsed)}
+        onClick={onToggle}
         className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-slate-50/50 transition-colors"
       >
         <div className="flex items-center gap-2">
@@ -61,7 +62,7 @@ export function ThinkingIndicator({ items, isThinking }: ThinkingIndicatorProps)
             {items.length} 步
           </span>
         </div>
-        {isCollapsed ? (
+        {collapsed ? (
           <ChevronDown size={16} className="text-slate-400" />
         ) : (
           <ChevronUp size={16} className="text-slate-400" />
@@ -70,7 +71,7 @@ export function ThinkingIndicator({ items, isThinking }: ThinkingIndicatorProps)
 
       {/* 内容区 */}
       <AnimatePresence>
-        {!isCollapsed && (
+        {!collapsed && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}

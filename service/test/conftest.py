@@ -53,6 +53,7 @@ class TestUserClothes(TestBase):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(100), nullable=True)
     category = Column(String(50), nullable=False)
     sub_category = Column(String(100), nullable=True)
     original_image_url = Column(String(500), nullable=False)
@@ -60,6 +61,8 @@ class TestUserClothes(TestBase):
     color = Column(String(32), nullable=True)
     material = Column(String(64), nullable=True)
     temperature_range = Column(String(50), nullable=True)
+    wear_method = Column(String(50), nullable=True)
+    scene = Column(String(50), nullable=True)
     tags = Column(Text, nullable=True)
     wear_count = Column(Integer, default=0)
     last_worn_at = Column(DateTime, nullable=True)

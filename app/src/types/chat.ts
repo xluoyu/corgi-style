@@ -35,7 +35,10 @@ export interface OutfitPlan {
     color: string;
     style: string;
     reason?: string;
+    matched?: boolean;
+    clothes_id?: string;
   }>;
+  missing_advice?: string;
   color_harmony?: string;
   scene_appropriateness?: string;
   temperature_suitability?: string;

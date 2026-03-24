@@ -6,7 +6,10 @@ class ShortCircuitTool:
         self.db = db
 
     def check_perfect_match(self, scheme: Dict, retrieved_clothes: Dict[str, Optional]) -> bool:
-        for item_name, item_info in scheme.get("items", {}).items():
+        items = scheme.get("items", {})
+        if not isinstance(items, dict):
+            return False
+        for item_name, item_info in items.items():
             expected_color = item_info.get("color")
             clothes = retrieved_clothes.get(item_name)
 
@@ -30,10 +33,14 @@ class ShortCircuitTool:
         if not retrieved_clothes:
             return 0.0
 
+        items = scheme.get("items", {})
+        if not isinstance(items, dict):
+            return 0.0
+
         matched_count = 0
         total_count = 0
 
-        for item_name, item_info in scheme.get("items", {}).items():
+        for item_name, item_info in items.items():
             total_count += 1
             clothes = retrieved_clothes.get(item_name)
 

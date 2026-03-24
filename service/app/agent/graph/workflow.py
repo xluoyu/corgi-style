@@ -5,10 +5,7 @@ from langgraph.graph import StateGraph, END
 from sqlalchemy.orm import Session
 
 from app.agent.graph.state import GraphState
-from app.agent.graph.edges import (
-    route_by_intent,
-    route_by_score
-)
+from app.agent.graph.edges import route_by_intent
 
 # 导入节点（延迟导入避免循环依赖）
 from app.agent.graph.nodes import intent as intent_node_module
@@ -19,26 +16,53 @@ from app.agent.graph.nodes import retrieval as retrieval_node_module
 from app.agent.graph.nodes import evaluation as evaluation_node_module
 from app.agent.graph.nodes import feedback as feedback_node_module
 from app.agent.graph.nodes import response as response_node_module
+from app.agent.graph.nodes import analysis as analysis_node_module
 
 
-def create_workflow(db: Session):
-    """创建并编译 StateGraph 工作流"""
+# =============================================================================
+# Wrapper 函数（节点执行前后注入 next_node，方便流式追踪）
+# =============================================================================
+
+def _wrap_async(func, node_name: str = None):
+    """包装异步节点函数，注入 next_node"""
+    async def wrapper(state):
+        if node_name:
+            state["next_node"] = node_name
+        return await func(state)
+    return wrapper
+
+
+def _wrap_async_with_db(func, db: Session, node_name: str = None):
+    """包装需要 db 的异步节点函数"""
+    async def wrapper(state):
+        if node_name:
+            state["next_node"] = node_name
+        return await func(state, db)
+    return wrapper
+
+
+# =============================================================================
+# 编译后的 Graph 缓存（避免每次请求都重新编译 StateGraph）
+# =============================================================================
+
+_compiled_graph_cache: dict = {}  # {"main": compiled_graph, "subgraph": subgraph}
+
+
+def _build_graph_structure(db: Session):
+    """构建图结构（不含缓存包装，返回原始 StateGraph）"""
     workflow = StateGraph(GraphState)
 
-    # 添加所有节点
-    workflow.add_node("intent", _wrap_async(intent_node_module.intent_node))
-    workflow.add_node("weather", _wrap_async(weather_node_module.weather_node))
-    workflow.add_node("wardrobe_query", _wrap_async_with_db(wardrobe_node_module.wardrobe_query_node, db))
-    workflow.add_node("outfit_planning", _wrap_async(planning_node_module.outfit_planning_node))
-    workflow.add_node("clothes_retrieval", _wrap_async_with_db(retrieval_node_module.clothes_retrieval_node, db))
-    workflow.add_node("outfit_evaluation", _wrap_async(evaluation_node_module.outfit_evaluation_node))
-    workflow.add_node("feedback", _wrap_async(feedback_node_module.feedback_node))
-    workflow.add_node("response", _wrap_async(response_node_module.response_node))
+    workflow.add_node("intent",           _wrap_async(intent_node_module.intent_node, "intent"))
+    workflow.add_node("weather",           _wrap_async(weather_node_module.weather_node, "weather"))
+    workflow.add_node("wardrobe_query",   _wrap_async_with_db(wardrobe_node_module.wardrobe_query_node, db, "wardrobe_query"))
+    workflow.add_node("outfit_planning",  _wrap_async(planning_node_module.outfit_planning_node, "outfit_planning"))
+    workflow.add_node("clothes_retrieval", _wrap_async_with_db(retrieval_node_module.clothes_retrieval_node, db, "clothes_retrieval"))
+    workflow.add_node("outfit_evaluation", _wrap_async(evaluation_node_module.outfit_evaluation_node, "outfit_evaluation"))
+    workflow.add_node("feedback",         _wrap_async(feedback_node_module.feedback_node, "feedback"))
+    workflow.add_node("response",         _wrap_async(response_node_module.response_node, "response"))
 
-    # 入口
     workflow.set_entry_point("intent")
 
-    # Intent 路由
     workflow.add_conditional_edges(
         "intent",
         route_by_intent,
@@ -50,69 +74,68 @@ def create_workflow(db: Session):
         }
     )
 
-    # === generate_outfit 分支 ===
     workflow.add_node("generate_outfit", _make_generate_outfit_subgraph(db))
 
-    # === feedback 分支 ===
-    # feedback → outfit_planning（重新规划）
     workflow.add_edge("feedback", "outfit_planning")
-
-    # === 线性边 ===
     workflow.add_edge("wardrobe_query", "response")
     workflow.add_edge("response", END)
 
-    return workflow.compile()
+    return workflow
+
+
+def get_compiled_workflow(db: Session):
+    """获取编译后的主工作流（使用缓存）"""
+    cache_key = "main_workflow"
+    if cache_key not in _compiled_graph_cache:
+        graph = _build_graph_structure(db)
+        _compiled_graph_cache[cache_key] = graph.compile()
+    return _compiled_graph_cache[cache_key]
+
+
+# =============================================================================
+# 主工作流
+# =============================================================================
+
+def create_workflow(db: Session):
+    """创建并编译 StateGraph 主工作流（内部使用缓存）"""
+    return get_compiled_workflow(db)
 
 
 def _make_generate_outfit_subgraph(db: Session):
-    """穿搭生成的简化子图"""
+    """
+    穿搭生成的子图（无重试循环版）
+
+    weather → wardrobe_query → wardrobe_analysis → outfit_planning → clothes_retrieval → response
+
+    - wardrobe_analysis：分析库存，标记缺失品类
+    - outfit_planning：LLM 基于实际库存规划，缺失品类用文字建议
+    - clothes_retrieval：只检索衣柜中已有的品类
+    - 无 evaluation 和重试循环
+    """
     subgraph = StateGraph(GraphState)
 
-    # 节点
-    subgraph.add_node("weather", _wrap_async(weather_node_module.weather_node))
-    subgraph.add_node("wardrobe_query", _wrap_async_with_db(wardrobe_node_module.wardrobe_query_node, db))
-    subgraph.add_node("outfit_planning", _wrap_async(planning_node_module.outfit_planning_node))
-    subgraph.add_node("clothes_retrieval", _wrap_async_with_db(retrieval_node_module.clothes_retrieval_node, db))
-    subgraph.add_node("outfit_evaluation", _wrap_async(evaluation_node_module.outfit_evaluation_node))
-    subgraph.add_node("response", _wrap_async(response_node_module.response_node))
+    subgraph.add_node("weather",           _wrap_async(weather_node_module.weather_node, "weather"))
+    subgraph.add_node("wardrobe_query",   _wrap_async_with_db(wardrobe_node_module.wardrobe_query_node, db, "wardrobe_query"))
+    subgraph.add_node("wardrobe_analysis", _wrap_async(analysis_node_module.wardrobe_analysis_node, "wardrobe_analysis"))
+    subgraph.add_node("outfit_planning",  _wrap_async(planning_node_module.outfit_planning_node, "outfit_planning"))
+    subgraph.add_node("clothes_retrieval", _wrap_async_with_db(retrieval_node_module.clothes_retrieval_node, db, "clothes_retrieval"))
+    subgraph.add_node("response",         _wrap_async(response_node_module.response_node, "response"))
 
-    # 入口
     subgraph.set_entry_point("weather")
 
-    # 线性流程
     subgraph.add_edge("weather", "wardrobe_query")
-    subgraph.add_edge("wardrobe_query", "outfit_planning")
+    subgraph.add_edge("wardrobe_query", "wardrobe_analysis")
+    subgraph.add_edge("wardrobe_analysis", "outfit_planning")
     subgraph.add_edge("outfit_planning", "clothes_retrieval")
-    subgraph.add_edge("clothes_retrieval", "outfit_evaluation")
-
-    # 条件分支
-    subgraph.add_conditional_edges(
-        "outfit_evaluation",
-        route_by_score,
-        {
-            "high_score": "response",
-            "low_score": "outfit_planning"  # 重试
-        }
-    )
-
+    subgraph.add_edge("clothes_retrieval", "response")
     subgraph.add_edge("response", END)
 
     return subgraph.compile()
 
 
-def _wrap_async(func):
-    """包装同步函数为异步函数（用于 LangGraph）"""
-    async def wrapper(state):
-        return await func(state)
-    return wrapper
-
-
-def _wrap_async_with_db(func, db: Session):
-    """包装需要 db 的异步函数"""
-    async def wrapper(state):
-        return await func(state, db)
-    return wrapper
-
+# =============================================================================
+# 对话工作流管理器
+# =============================================================================
 
 class DialogueWorkflow:
     """对话工作流管理器"""
