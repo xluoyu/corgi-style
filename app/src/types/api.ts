@@ -54,8 +54,8 @@ export interface ClothingItem {
   wear_method?: string;
   scene?: string;
   generated_image_url?: string;
-  analysis_completed: boolean;
-  generated_completed: boolean;
+  analysis_completed: number;
+  generated_completed: number;
   wear_count?: number;
   created_at: string;
 }
@@ -106,8 +106,8 @@ export interface UploadClothesResponse {
 
 export interface ClothesStatusResponse {
   clothes_id: string;
-  analysis_completed: boolean;
-  generated_completed: boolean;
+  analysis_completed: number;
+  generated_completed: number;
   generated_image_url?: string;
   color?: string;
   category?: ClothingCategory;

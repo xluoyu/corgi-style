@@ -34,7 +34,8 @@
       "Bash(python -c \":*)",
       "Bash(grep -v \"^Traceback\\\\|^  File\\\\|^TypeError\\\\|^    yield\\\\|^During\\\\|^$\")",
       "WebSearch",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

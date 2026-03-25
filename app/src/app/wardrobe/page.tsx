@@ -24,6 +24,7 @@ interface ApiClothingItem {
   generated_image_url?: string;
   analysis_completed: number;
   generated_completed: number;
+  wear_count?: number;
   created_at: string;
 }
 
@@ -146,11 +147,11 @@ export default function WardrobePage() {
           imageUrl: item.generated_image_url || item.image_url || "",
           material: item.material,
           temperatureRange: item.temperature_range,
-          temperatureRangeLabel: temperatureLabels[item.temperature_range] || item.temperature_range || "",
+          temperatureRangeLabel: item.temperature_range ? temperatureLabels[item.temperature_range] || item.temperature_range || "" : "",
           wearMethod: item.wear_method,
-          wearMethodLabel: wearMethodLabels[item.wear_method] || item.wear_method || "",
+          wearMethodLabel: item.wear_method ? wearMethodLabels[item.wear_method] || item.wear_method || "" : "",
           scene: item.scene,
-          sceneLabel: sceneLabels[item.scene] || item.scene || "",
+          sceneLabel: item.scene ? sceneLabels[item.scene] || item.scene || "" : "",
           analysisCompleted: item.analysis_completed === 1,
           generatedCompleted: item.generated_completed === 1,
           wearCount: item.wear_count || 0,

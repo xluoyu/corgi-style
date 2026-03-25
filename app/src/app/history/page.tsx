@@ -221,8 +221,8 @@ export default function HistoryPage() {
     try {
       // 使用 API 重新生成穿搭
       const response = await generateTodayOutfit(
-        item.temperature,
         item.city,
+        item.temperature,
         item.scene as any
       );
 
@@ -231,14 +231,14 @@ export default function HistoryPage() {
         if (outfit.id === item.id) {
           return {
             ...outfit,
-            clothes: response.clothes.map(clothes => ({
-              id: clothes.clothes_id,
-              image_url: clothes.image_url,
-              category: clothes.category,
-              color: clothes.color
+            clothes: response.outfit_items.map(item => ({
+              id: item.slot,
+              image_url: "",
+              category: item.slot,
+              color: item.color
             })),
             description: response.description,
-            match_score: response.match_score
+            match_score: 0
           };
         }
         return outfit;

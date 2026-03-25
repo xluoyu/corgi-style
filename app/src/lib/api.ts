@@ -18,6 +18,11 @@ import type {
   GenerateOutfitRequest,
   GenerateOutfitResponse,
   OutfitFeedbackResponse,
+  OutfitHistoryListResponse,
+  OutfitHistoryDetail,
+  SaveOutfitSnapshotRequest,
+  SaveOutfitSnapshotResponse,
+  OutfitStatsSummary,
 } from "@/types/api";
 
 // API 基础 URL

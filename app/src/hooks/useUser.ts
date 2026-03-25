@@ -31,7 +31,7 @@ export function useUser(): UseUserResult {
       const userInfo = await getUserOrCreate();
       setUser(userInfo);
       localStorage.setItem(USER_CACHE_KEY, JSON.stringify(userInfo));
-      localStorage.setItem("user_id", userInfo.user_id);
+      localStorage.setItem("user_id", userInfo.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "获取用户信息失败");
       console.error("用户初始化失败:", err);
