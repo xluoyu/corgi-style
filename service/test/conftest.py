@@ -13,6 +13,10 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
+import pytest_asyncio
+
+# 异步测试配置
+pytest_plugins = ("pytest_asyncio",)
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, Column, String, DateTime, Integer, ForeignKey, Boolean, Text

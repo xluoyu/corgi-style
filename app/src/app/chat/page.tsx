@@ -25,7 +25,30 @@ export default function ChatPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedClothes, setSelectedClothes] = useState<ClothesItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const TOOL_NAME_MAP: Record<string, string> = {
+  get_weather: '获取天气',
+  analyze_clothing_image: '分析图片',
+  search_wardrobe: '搜索衣柜',
+  add_clothes_to_wardrobe: '添加衣物',
+  plan_outfit: '规划穿搭',
+  get_outfit_history: '查询历史',
+  remember_context: '记住信息',
+  recall_context: '回忆信息',
+  search_knowledge_base: '知识问答',
+};
+
+function getToolName(tool: string): string {
+  return TOOL_NAME_MAP[tool] ?? tool;
+}
+
+/** 安全提取字符串类型的事件内容 */
+function getContentStr(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (content == null) return "";
+  return String(content);
+}
+
+const [error, setError] = useState<string | null>(null);
 
   // 滚动到底部
   const scrollToBottom = useCallback(() => {
@@ -90,16 +113,23 @@ export default function ChatPage() {
       for await (const event of stream) {
         switch (event.event) {
           case "thinking": {
-            // 防御：过滤无效数据（node 应为已知节点名，不含 { 或过长）
-            const rawNode = event.content?.node;
-            const isValidNode = typeof rawNode === "string" && rawNode.length < 50 && !rawNode.includes("{");
-            if (isValidNode) {
+            // 兼容新旧两种格式：
+            // 新格式: content 是字符串 "正在分析..."
+            // 旧格式: content 是 {node, node_name, text} 对象
+            const rawContent = event.content;
+            const isObj = rawContent != null && typeof rawContent === "object";
+            const nodeName = isObj ? (rawContent as { node_name?: string }).node_name : null;
+            const displayText = isObj
+              ? String((rawContent as { text?: unknown }).text ?? "")
+              : getContentStr(rawContent);
+
+            if (nodeName || displayText) {
               setThinkingItems((prev) => [
                 ...prev,
                 {
-                  node: rawNode,
-                  node_name: event.content?.node_name ?? rawNode,
-                  text: event.content?.text ?? "",
+                  node: (nodeName ?? "thinking") as string,
+                  node_name: nodeName ?? "AI思考",
+                  text: displayText,
                   timestamp: Date.now(),
                 },
               ]);
@@ -108,7 +138,8 @@ export default function ChatPage() {
           }
 
           case "text":
-            accumulatedText += event.content;
+            // 确保 content 是字符串，防止 [object Object]
+            accumulatedText += getContentStr(event.content);
             // 更新最后一条 AI 消息
             setMessages((prev) => {
               const lastMsg = prev[prev.length - 1];
@@ -180,6 +211,58 @@ export default function ChatPage() {
               return prev;
             });
             break;
+
+          case "tool_called": {
+            const content = event.content as { tool?: unknown } | null;
+            const rawTool = getContentStr(content?.tool);
+            const toolName = rawTool ? getToolName(rawTool) : "未知工具";
+
+            setThinkingItems((prev) => [
+              ...prev,
+              {
+                node: rawTool || "tool",
+                node_name: toolName,
+                text: `正在调用 ${toolName}...`,
+                timestamp: Date.now(),
+                status: "pending" as const,
+              },
+            ]);
+            break;
+          }
+
+          case "tool_result": {
+            // event.content 可能是 {tool, result} 或其他结构
+            const content = event.content as { tool?: string; result?: unknown } | null;
+            const rawResult = content?.result;
+            const resultStr = getContentStr(rawResult);
+
+            // 安全解析：尝试解析 JSON，提取 error 字段
+            let isError = false;
+            if (resultStr) {
+              try {
+                const parsed = JSON.parse(resultStr);
+                isError = !!(parsed && typeof parsed === "object" && "error" in parsed);
+              } catch {
+                // 解析失败，保持非 error
+              }
+            }
+
+            setThinkingItems((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.status === "pending" && last.node === content?.tool) {
+                return [
+                  ...prev.slice(0, -1),
+                  {
+                    ...last,
+                    text: isError ? `❌ ${last.node_name} 失败` : `${last.node_name} 返回结果`,
+                    status: isError ? "error" as const : "success" as const,
+                  },
+                ];
+              }
+              return prev;
+            });
+            break;
+          }
 
           case "done":
             // 保存 session_id

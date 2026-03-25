@@ -6,6 +6,7 @@
 export type ChatEventType =
   | 'thinking'
   | 'tool_call'
+  | 'tool_called'
   | 'tool_result'
   | 'text'
   | 'outfit_card'
@@ -13,11 +14,39 @@ export type ChatEventType =
   | 'done'
   | 'error';
 
+// Tool 调用相关
+export interface ToolCalledItem {
+  tool: string;
+  tool_name: string;
+  args: Record<string, any>;
+  timestamp: number;
+  status: 'pending' | 'success' | 'error';
+}
+
+export interface ToolResultItem {
+  tool: string;
+  tool_name: string;
+  result: string;
+  success: boolean;
+  timestamp: number;
+}
+
 // 流式事件
 export interface ChatStreamEvent {
   event: ChatEventType;
   content: any;
 }
+
+// SSE 事件类型
+export type SSEEvent =
+  | { event: 'thinking'; content: any }
+  | { event: 'text'; content: string }
+  | { event: 'outfit_card'; content: any }
+  | { event: 'suggestions'; content: any }
+  | { event: 'tool_called'; content: ToolCalledItem }
+  | { event: 'tool_result'; content: ToolResultItem }
+  | { event: 'done'; content: { session_id: string } }
+  | { event: 'error'; content: { message: string } };
 
 // 思考过程项
 export interface ThinkingItem {
@@ -25,6 +54,7 @@ export interface ThinkingItem {
   node_name: string;
   text: string;
   timestamp: number;
+  status?: 'pending' | 'success' | 'error';
 }
 
 // 穿搭方案

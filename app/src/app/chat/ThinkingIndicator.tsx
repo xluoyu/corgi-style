@@ -83,20 +83,37 @@ export function ThinkingIndicator({ items, isThinking, collapsed, onToggle }: Th
               ref={scrollRef}
               className="max-h-32 overflow-y-auto px-4 pb-3 space-y-1.5"
             >
-              {items.map((item, index) => (
-                <motion.div
-                  key={`${item.node}-${index}`}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.2, delay: index * 0.05 }}
-                  className="flex items-start gap-2 text-[12px]"
-                >
-                  <span className={`font-mono font-bold ${nodeColors[item.node] || "text-slate-400"}`}>
-                    [{item.node_name}]
-                  </span>
-                  <span className="text-slate-600">{item.text}</span>
-                </motion.div>
-              ))}
+              {items.map((item, index) => {
+                const statusColors = {
+                  pending: "text-[#FE8F39]",
+                  success: "text-emerald-500",
+                  error: "text-red-500",
+                };
+                const statusIcons = {
+                  pending: "⚡",
+                  success: "✅",
+                  error: "❌",
+                };
+                const statusPrefix = item.status ? `${statusIcons[item.status]} ` : "";
+                const statusColorClass = item.status ? statusColors[item.status] : "";
+
+                return (
+                  <motion.div
+                    key={`${item.node}-${index}`}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.2, delay: index * 0.05 }}
+                    className="flex items-start gap-2 text-[12px]"
+                  >
+                    <span className={`font-mono font-bold ${nodeColors[item.node] || "text-slate-400"} ${item.status ? (item.status === 'pending' ? 'animate-pulse' : '') : ''}`}>
+                      [{item.node_name}]
+                    </span>
+                    <span className={`text-slate-600 ${statusColorClass}`}>
+                      {statusPrefix}{item.text}
+                    </span>
+                  </motion.div>
+                );
+              })}
 
               {/* 正在思考的指示器 */}
               {isThinking && (
