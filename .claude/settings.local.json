@@ -29,7 +29,10 @@
       "Bash(taskkill //F //PID 25932)",
       "Bash(git add:*)",
       "Bash(find D:/Work/my/Corgi-style/app/src -name *.tsx -o -name *.ts)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(python -c \":*)",
+      "Bash(grep -v \"^Traceback\\\\|^  File\\\\|^TypeError\\\\|^    yield\\\\|^During\\\\|^$\")"
     ]
   }
 }

@@ -1,7 +1,13 @@
 """响应生成节点"""
+import logging
 import random
+import re
+import json
 from typing import Dict, Any, List, Optional
 from app.agent.graph.state import GraphState
+from app.services.llm_providers import get_cached_provider
+
+logger = logging.getLogger(__name__)
 
 
 # 品类 emoji 映射
@@ -14,29 +20,79 @@ _SLOT_NAMES = {
     "inner": "内搭", "accessory": "配饰"
 }
 
+# =============================================================================
+# LLM 实体提取（兜底：规则无法识别时用 LLM）
+# =============================================================================
+
+ENTITY_EXTRACTION_PROMPT = """从用户输入中提取城市和场景。只提取，不判断意图。
+
+输出JSON格式：{{"city": "北京"或null, "scene": "work/casual/date/sport/party/daily/null"}}
+
+规则示例：
+- "北京" → city=北京
+- "奔北京" → city=北京
+- "飞北京出差" → city=北京, scene=work
+- "春城" → city=昆明
+- "约会" → scene=date
+- "和小伙伴浪一下" → scene=casual
+- "蹦迪" → scene=party
+- "出差" → scene=work
+- 没有任何城市或场景 → {{"city": null, "scene": null}}
+
+只输出JSON，不要有其他文字。"""
+
+
+async def _llm_extract_entities(message: str) -> Dict[str, Optional[str]]:
+    """
+    用 LLM 提取用户消息中的城市和场景。
+
+    当硬编码规则无法识别时，作为兜底方案。
+    """
+    try:
+        llm = get_cached_provider()
+        chat_model = llm.chat_model
+        from langchain_core.messages import HumanMessage
+
+        response = await chat_model.ainvoke([
+            HumanMessage(content=ENTITY_EXTRACTION_PROMPT + f"\n\n用户输入：{message}")
+        ])
+
+        json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group())
+            return {
+                "city": result.get("city"),
+                "scene": result.get("scene")
+            }
+    except Exception:
+        pass
+    return {"city": None, "scene": None}
+
 
 def _build_missing_question(state: GraphState, intent_str: str) -> Optional[tuple[str, Dict]]:
     """
-    检测缺失的关键信息，如果缺少则主动提问用户。
+    检测缺失的关键信息，逐个追问（一次只问一个）。
 
     Returns:
-        (question_text, data_dict) 如果需要提问，否则 None
+        (question_text, data_dict) 如果需要追问，否则 None
     """
-    if intent_str == "generate_outfit":
-        missing = []
-        if not state.get("target_city"):
-            missing.append("要去哪里（城市）呢")
-        if not state.get("target_scene"):
-            missing.append("是什么场合（比如上班、约会、运动）")
-        if not state.get("user_clothes"):
-            missing.append("让我看看您的衣柜里有什么衣服～")
+    if intent_str != "generate_outfit":
+        return None
 
-        if missing:
-            question = "好的！想帮您搭配得更好，" + missing[0]
-            if len(missing) > 1:
-                question += "，" + "，".join(missing[1:])
-            question += "？"
-            return question, {"type": "ask_info", "missing": missing}
+    # 按优先级逐一检查，一次只问一个问题
+    if not state.get("target_city"):
+        question = "好的！您要去哪个城市呢？"
+        return question, {"type": "ask_info", "missing": ["city"], "asking_for": "city"}
+
+    if not state.get("target_scene"):
+        city = state.get("target_city", "")
+        question = f"好的，{city}不错～您是去什么场合呢？（比如上班、约会、运动）"
+        return question, {"type": "ask_info", "missing": ["scene"], "asking_for": "scene"}
+
+    if not state.get("user_clothes"):
+        question = "让我看看您的衣柜里有什么衣服～"
+        return question, {"type": "ask_info", "missing": ["wardrobe"], "asking_for": "wardrobe"}
+
     return None
 
 
@@ -57,19 +113,43 @@ async def response_node(state: GraphState) -> GraphState:
     user_message = state.get("messages", [{}])[-1].get("content", "") if state.get("messages") else ""
 
     # 检查缺失信息，主动提问
-    missing_q = _build_missing_question(state, intent_str)
+    # 注意：如果 outfit_plan 已存在（子图调用），直接生成响应，不追问
+    if state.get("outfit_plan"):
+        missing_q = None
+    else:
+        missing_q = _build_missing_question(state, intent_str)
+
     if missing_q:
         response_content, data = missing_q
+        # 追问状态写入 state，供下一轮继承上下文
+        if data.get("asking_for"):
+            state["asking_for"] = data["asking_for"]
+        # 只有在追问 scene（最后一个追问）时，才设置 pending_intent 触发子图
+        if data.get("asking_for") == "scene":
+            state["pending_intent"] = intent_str
+    elif intent_str == "generate_outfit":
+        # city + scene 都完整（或子图），生成穿搭
+        # 如果是 pending_intent 触发的（outfit_plan 还不存在），不直接生成，留给 workflow 重新路由
+        if not state.get("outfit_plan") and state.get("pending_intent") == "generate_outfit":
+            # pending_intent 已设置，workflow 会重新路由到子图，这里先返回占位
+            response_content = "正在为您准备穿搭方案..."
+            data = {"type": "pending_generate"}
+        elif not state.get("outfit_plan") and state.get("target_city") and state.get("target_scene"):
+            # 兜底：city + scene 都有了但还没进子图（比如 intent 识别失败兜底到了 response），
+            # 设置 pending_intent 让 workflow 重新路由到子图
+            state["pending_intent"] = "generate_outfit"
+            response_content = "正在为您准备穿搭方案..."
+            data = {"type": "pending_generate"}
+        else:
+            response_content, data = _handle_generate_outfit(state)
     elif intent_str == "query_wardrobe":
         response_content, data = _handle_wardrobe_query(state)
-    elif intent_str == "generate_outfit":
-        response_content, data = _handle_generate_outfit(state)
     elif intent_str == "give_feedback":
         response_content, data = _handle_feedback(state)
     elif intent_str == "get_advice":
         response_content, data = _handle_get_advice(state)
     else:
-        response_content, data = _handle_unknown(state)
+        response_content, data = await _handle_unknown(state)
 
     # 更新消息历史
     messages = state.get("messages", [])
@@ -81,8 +161,12 @@ async def response_node(state: GraphState) -> GraphState:
 
     # 设置返回数据
     state["response_data"] = data
-    state["should_end"] = True
-
+    # pending_generate 时不结束，继续流向 check_pending_generate 重新路由到子图
+    if data.get("type") == "pending_generate":
+        state["should_end"] = False
+    else:
+        state["should_end"] = True
+    logger.info(f"[response] 返回 | type={data.get('type')} should_end={state['should_end']} target_city={state.get('target_city')} target_scene={state.get('target_scene')}")
     return state
 
 
@@ -92,35 +176,7 @@ def _handle_wardrobe_query(state: GraphState) -> tuple[str, Dict[str, Any]]:
     wardrobe_stats = state.get("wardrobe_stats")
     user_clothes = state.get("user_clothes", [])
 
-    # 如果 state 中没有 stats（某些路径），才回退到查 DB
-    if wardrobe_stats is None:
-        from app.database import SessionLocal
-        from app.models import UserClothes
-        db = SessionLocal()
-        try:
-            clothes = db.query(UserClothes).filter(
-                UserClothes.user_id == state.get("user_id"),
-                UserClothes.is_deleted == False
-            ).all()
-            wardrobe_stats = {
-                "total": len(clothes),
-                "by_category": {},
-                "by_color": {},
-                "avg_wear_count": 0.0
-            }
-            total_wear = 0
-            for c in clothes:
-                cat = c.category or "unknown"
-                color = c.color or "unknown"
-                wardrobe_stats["by_category"][cat] = wardrobe_stats["by_category"].get(cat, 0) + 1
-                wardrobe_stats["by_color"][color] = wardrobe_stats["by_color"].get(color, 0) + 1
-                total_wear += c.wear_count or 0
-            if clothes:
-                wardrobe_stats["avg_wear_count"] = round(total_wear / len(clothes), 1)
-        finally:
-            db.close()
-
-    stats = wardrobe_stats
+    stats = wardrobe_stats or {"total": 0, "by_category": {}, "by_color": {}, "avg_wear_count": 0.0}
 
     if stats["total"] > 0:
         category_text = ""
@@ -147,7 +203,13 @@ def _handle_generate_outfit(state: GraphState) -> tuple[str, Dict[str, Any]]:
     # 无方案
     if not outfit_plan:
         response = "哎呀，暂时没法给您生成穿搭方案，可能是衣柜里还没有衣服。您可以先添加几件衣服试试～"
-        return response, {"type": "outfit_result", "success": False}
+        return response, {
+            "type": "outfit_result",
+            "success": False,
+            # 即使失败也保留关键字段，供 session 保存
+            "target_city": state.get("target_city"),
+            "target_scene": state.get("target_scene"),
+        }
 
     # 检查是否有真实衣物
     real_clothes = {k: v for k, v in selected_clothes.items() if v}
@@ -322,7 +384,76 @@ def _handle_greeting(state: GraphState) -> tuple[str, Dict[str, Any]]:
     return response, {"type": "greeting"}
 
 
-def _handle_unknown(state: GraphState) -> tuple[str, Dict[str, Any]]:
+def _extract_city_from_message(message: str) -> Optional[str]:
+    """
+    从用户消息中提取城市名，支持以下模式：
+    - 纯城市名："北京"、"上海"
+    - 去+城市："去北京"、"去杭州出差"
+    - 在+城市："在北京"、"在上海上班"
+
+    Returns:
+        标准城市名或 None
+    """
+    msg = message.strip()
+    # 纯城市名
+    if _is_likely_city(msg):
+        return msg
+
+    # 去+城市：在常见动词后的第一个城市名
+    # 匹配 "去X"、"在X" 后跟城市名的情况
+    for prefix in ["去", "在", "到"]:
+        if msg.startswith(prefix) and len(msg) >= 3:
+            remainder = msg[len(prefix):]
+            if _is_likely_city(remainder):
+                return remainder
+            # 处理 "去杭州出差" 这类情况：取前4个字
+            if len(remainder) <= 4 and _is_likely_city(remainder[:2]):
+                return remainder[:2]
+            if len(remainder) <= 6 and _is_likely_city(remainder[:3]):
+                return remainder[:3]
+
+    return None
+
+
+def _extract_scene_from_message(message: str) -> Optional[str]:
+    """
+    从用户消息中提取场景关键词，支持以下模式：
+    - "去上班"、"上班" → work
+    - "约会" → date
+    - "运动"、"跑步" → sport
+    - "开会" → work
+    - "派对"、"聚会" → party
+
+    注意：使用词边界匹配，避免"去北京"中的"约"字误触发"约会"
+    """
+    msg = message.strip().lower()
+
+    # 场景关键词映射（必须完整词匹配，避免误提取）
+    scene_keywords = {
+        "上班": "work", "开会": "work", "出差": "work", "工作": "work", "商务": "work",
+        "约会": "date", "相亲": "date",
+        "运动": "sport", "跑步": "sport", "健身": "sport", "打球": "sport",
+        "派对": "party", "聚会": "party", "晚宴": "party", "婚礼": "party",
+        "休闲": "casual", "日常": "daily",
+        "面试": "formal", "正式": "formal"
+    }
+
+    # 用分词/空格/标点分割，确保完整词匹配
+    # 将消息按空格和常见分隔符分割
+    import re
+    tokens = re.split(r'[\s,，。、！？；;,.!?]+', msg)
+    for token in tokens:
+        if token in scene_keywords:
+            return scene_keywords[token]
+    # 再检查整个消息是否包含关键词（覆盖不含分隔符的短句）
+    for keyword, scene in scene_keywords.items():
+        if keyword in msg and len(msg) <= 6:
+            return scene
+
+    return None
+
+
+async def _handle_unknown(state: GraphState) -> tuple[str, Dict[str, Any]]:
     """处理未知意图响应——智能 fallback"""
     user_message = state.get("messages", [{}])[-1].get("content", "") if state.get("messages") else ""
 
@@ -337,12 +468,74 @@ def _handle_unknown(state: GraphState) -> tuple[str, Dict[str, Any]]:
     target_scene = entities.get("scene") or state.get("target_scene") or ""
     user_message_lower = user_message.strip().lower()
 
-    # 如果用户只发送了城市名（如"北京"、"上海"），直接识别为城市
-    if not target_city and len(user_message) <= 6 and user_message.isalnum():
-        if _is_likely_city(user_message):
-            target_city = user_message
+    # 城市识别：支持"北京"、"去北京"、"在北京"等模式
+    extracted_city = _extract_city_from_message(user_message)
+    if not target_city and extracted_city:
+        target_city = extracted_city
+        state["target_city"] = target_city
+        entities["city"] = target_city
+
+    # 场景提取：如果用户在回答"什么场合"的问题
+    extracted_scene = _extract_scene_from_message(user_message)
+    if not target_scene and extracted_scene:
+        target_scene = extracted_scene
+        state["target_scene"] = target_scene
+        entities["scene"] = target_scene
+
+    # 如果规则都没识别到 → LLM 兜底
+    asking_for = state.get("asking_for") or ""
+    if not target_city and not extracted_city and not target_scene and not extracted_scene:
+        llm_entities = await _llm_extract_entities(user_message)
+        if llm_entities.get("city"):
+            target_city = llm_entities["city"]
             state["target_city"] = target_city
             entities["city"] = target_city
+        if llm_entities.get("scene"):
+            target_scene = llm_entities["scene"]
+            state["target_scene"] = target_scene
+            entities["scene"] = target_scene
+
+    # 如果追问状态为 scene，且提取到了场景 → 设置 pending_intent，等待 workflow 重新路由到子图
+    # 注意：此时 outfit_plan 还不存在（子图还没跑），不能直接调用 _handle_generate_outfit
+    asking_for = state.get("asking_for") or ""
+    if asking_for == "scene" and target_scene and target_city:
+        state["pending_intent"] = "generate_outfit"
+        state["intent_str"] = "generate_outfit"
+        state["asking_for"] = None
+        # 不调用 _handle_generate_outfit！让 workflow 重新路由到子图
+        # response_node 会检测 pending_intent 并设置 should_end=False，重新触发边路由
+        return "好的，马上为您生成穿搭～", {"type": "pending_generate", "pending_intent": "generate_outfit"}
+
+    # 如果追问状态为 city，且提取到了城市
+    if asking_for == "city" and target_city:
+        state["pending_intent"] = "generate_outfit"
+        state["intent_str"] = "generate_outfit"
+        state["asking_for"] = None
+        # 有城市没场景 → 追问场景
+        question = f"好的，{target_city}不错～您是去什么场合呢？（比如上班、约会、运动）"
+        return question, {"type": "ask_info", "missing": ["scene"], "city": target_city, "asking_for": None, "pending_intent": "generate_outfit"}
+
+    # 如果追问状态为 city，但用户也提供了场景（如"和朋友去玩"）
+    if asking_for == "city" and not target_city and extracted_scene:
+        scene_name = {
+            "casual": "休闲", "daily": "日常", "work": "上班",
+            "sport": "运动", "date": "约会", "party": "派对", "formal": "正式"
+        }.get(extracted_scene, extracted_scene)
+        state["pending_intent"] = "generate_outfit"
+        state["target_scene"] = extracted_scene
+        state["entities"]["scene"] = extracted_scene
+        # 记住场景，继续追问城市
+        question = f"好的，准备{scene_name}的穿搭～您是去哪个城市呢？"
+        return question, {"type": "ask_info", "missing": ["city"], "asking_for": "city", "pending_intent": "generate_outfit", "scene": extracted_scene}
+
+    # 如果追问状态为 scene，但用户也提供了城市
+    if asking_for == "scene" and not target_scene and extracted_city:
+        state["pending_intent"] = "generate_outfit"
+        state["target_city"] = extracted_city
+        state["entities"]["city"] = extracted_city
+        # 记住城市，继续追问场景
+        question = f"好的，{extracted_city}不错～您是去什么场合呢？（比如上班、约会、运动）"
+        return question, {"type": "ask_info", "missing": ["scene"], "asking_for": "scene", "pending_intent": "generate_outfit", "city": extracted_city}
 
     # 简短确认语
     ack_keywords = ["谢谢", "好", "知道了", "明白了", "了解", "好的", "收到", "好的好的", "行"]
@@ -358,7 +551,7 @@ def _handle_unknown(state: GraphState) -> tuple[str, Dict[str, Any]]:
     weather_keywords = ["天气", "多少度", "气温", "温度"]
     if any(k in user_message_lower for k in weather_keywords):
         if target_city:
-            return f"杭州现在的天气我帮您查过了，今天气温大概{target_city}度左右。具体穿搭建议可以告诉我您的需求哦～", {"type": "weather_query"}
+            return f"好的，我帮您查一下{target_city}的天气～", {"type": "weather_query", "city": target_city}
         return "您想查询哪个城市的天气呢？比如可以说「杭州今天多少度」～", {"type": "weather_query"}
 
     # 衣柜浏览/查询类（常见表达）
@@ -368,26 +561,28 @@ def _handle_unknown(state: GraphState) -> tuple[str, Dict[str, Any]]:
         return _handle_wardrobe_query(state)
 
     # 如果有实体但 intent 识别失败，尝试推断
+    # 注意：设置 pending_intent 避免下一轮丢失上下文
+    # 关键：不能直接调用 _handle_generate_outfit！因为 outfit_plan 还不存在（子图还没跑）
+    # 应该设置 pending_intent，让 workflow 重新路由到子图
     if target_city and target_scene:
-        # 有城市+场景 → 视为 generate_outfit
+        state["pending_intent"] = "generate_outfit"
         state["intent_str"] = "generate_outfit"
-        return _handle_generate_outfit(state)
+        return "好的，马上为您生成穿搭～", {"type": "pending_generate", "pending_intent": "generate_outfit"}
     elif target_city:
-        # 有城市没场景 → 追问场景
-        missing = ["是什么场合（比如上班、约会、运动）"]
-        question = f"好的！想帮您在{target_city}找到合适的穿搭，"
-        question += missing[0] + "？"
-        return question, {"type": "ask_info", "missing": missing, "city": target_city}
+        # 有城市没场景 → 追问场景，继承 pending_intent
+        state["pending_intent"] = "generate_outfit"
+        state["asking_for"] = "scene"
+        question = f"好的，{target_city}不错～您是去什么场合呢？（比如上班、约会、运动）"
+        return question, {"type": "ask_info", "missing": ["scene"], "city": target_city, "asking_for": "scene", "pending_intent": "generate_outfit"}
     elif target_scene:
-        # 有场景没城市 → 追问城市
+        state["pending_intent"] = "generate_outfit"
+        state["asking_for"] = "city"
         scene_name = {
             "casual": "休闲", "daily": "日常", "work": "上班",
             "sport": "运动", "date": "约会", "party": "派对", "formal": "正式"
         }.get(target_scene, target_scene)
-        missing = ["要去哪里（城市）呢"]
-        question = f"好的！想帮您准备{scene_name}的穿搭，"
-        question += missing[0] + "？"
-        return question, {"type": "ask_info", "missing": missing, "scene": target_scene}
+        question = f"好的！想帮您准备{scene_name}的穿搭，您是去哪个城市呢？"
+        return question, {"type": "ask_info", "missing": ["city"], "scene": target_scene, "asking_for": "city", "pending_intent": "generate_outfit"}
 
     # 真正的无法理解 → 友好引导
     suggestions = [

@@ -1,5 +1,5 @@
 """LangGraph StateGraph 工作流组装"""
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Literal
 import asyncio
 from langgraph.graph import StateGraph, END
 from sqlalchemy.orm import Session
@@ -48,6 +48,30 @@ def _wrap_async_with_db(func, db: Session, node_name: str = None):
 _compiled_graph_cache: dict = {}  # {"main": compiled_graph, "subgraph": subgraph}
 
 
+def _route_by_pending_intent(state: GraphState) -> Literal["generate_outfit", "end"]:
+    """
+    只有当 pending_intent == "generate_outfit" 且 outfit_plan 还不存在时，重新进入子图。
+    如果 should_end=True，说明正常结束（追问），直接结束。
+    """
+    if state.get("should_end"):
+        return "end"
+    if state.get("pending_intent") == "generate_outfit" and not state.get("outfit_plan"):
+        # 清除 pending_intent，避免子图执行后再次触发
+        state["pending_intent"] = None
+        return "generate_outfit"
+    return "end"
+
+
+async def _check_pending_generate_node(state: GraphState) -> GraphState:
+    """
+    检查是否有待触发的 generate_outfit 意图。
+
+    由 response_node 在 city+scene 完整时设置 pending_intent，
+    本节点负责将流程重新路由到 generate_outfit 子图。
+    """
+    return state
+
+
 def _build_graph_structure(db: Session):
     """构建图结构（不含缓存包装，返回原始 StateGraph）"""
     workflow = StateGraph(GraphState)
@@ -78,7 +102,16 @@ def _build_graph_structure(db: Session):
 
     workflow.add_edge("feedback", "outfit_planning")
     workflow.add_edge("wardrobe_query", "response")
-    workflow.add_edge("response", END)
+    workflow.add_edge("response", "check_pending_generate")
+    workflow.add_node("check_pending_generate", _wrap_async(_check_pending_generate_node, "check_pending_generate"))
+    workflow.add_conditional_edges(
+        "check_pending_generate",
+        _route_by_pending_intent,
+        {
+            "generate_outfit": "generate_outfit",
+            "end": END,
+        }
+    )
 
     return workflow
 

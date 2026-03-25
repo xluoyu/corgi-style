@@ -1,6 +1,7 @@
 """对话 API 路由"""
 import json
 import asyncio
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -15,6 +16,8 @@ from app.agent.dialogue_session import (
 )
 from app.agent.graph.workflow import DialogueWorkflow
 from app.agent.graph.state import GraphState
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -133,6 +136,46 @@ async def chat_message_stream(
                 user_id=request.user_id
             )
 
+            def _do_save(state: GraphState) -> bool:
+                """统一保存 session 上下文到 DB。返回是否成功。"""
+                try:
+                    # 保存上下文（只保存有值的字段）
+                    if state.get("target_city"):
+                        _update_context(session, {"target_city": state["target_city"]})
+                        logger.info(f"[stream._do_save] 保存 target_city={state['target_city']}")
+                    if state.get("target_scene"):
+                        _update_context(session, {"target_scene": state["target_scene"]})
+                        logger.info(f"[stream._do_save] 保存 target_scene={state['target_scene']}")
+                    if state.get("target_temperature"):
+                        _update_context(session, {"target_temperature": state["target_temperature"]})
+                    if state.get("target_date"):
+                        _update_context(session, {"target_date": state["target_date"]})
+                    if state.get("asking_for"):
+                        _update_context(session, {"asking_for": state["asking_for"]})
+                    if state.get("pending_intent"):
+                        _update_context(session, {"pending_intent": state["pending_intent"]})
+                    if state.get("outfit_plan"):
+                        _update_context(session, {"current_outfit": state["outfit_plan"]})
+
+                    # 添加助手回复到历史
+                    response_text = _get_text_message(state)
+                    _add_message(session, "assistant", response_text)
+
+                    # 写入 DB
+                    session_mgr.save(session)
+
+                    # 验证读回（确保真的写进去了）
+                    saved_session = session_mgr.get(session.session_id)
+                    if saved_session:
+                        logger.info(f"[stream._do_save] 验证读回 | ctx.city={saved_session.context.target_city} ctx.scene={saved_session.context.target_scene} ctx.asking_for={saved_session.context.asking_for}")
+                    else:
+                        logger.warning(f"[stream._do_save] 验证读回失败，session不存在: {session.session_id}")
+
+                    return True
+                except Exception as e:
+                    logger.error(f"[stream._do_save] 保存失败: {e}", exc_info=True)
+                    return False
+
             # 添加用户消息到历史
             _add_message(session, "user", request.message)
 
@@ -146,6 +189,12 @@ async def chat_message_stream(
             # 构建初始状态
             context = _get_context_dict(session)
             context.update(user_profile)  # 画像数据合并到 context
+
+            # 近 2 轮对话摘要（给 intent_node 的 LLM 看）
+            recent_msgs = session.history[-4:]  # 最多 4 条 = 最近 2 轮
+            recent_summary = "\n".join([f"用户：{m.content}" if m.role == "user" else f"助手：{m.content}" for m in recent_msgs])
+            if recent_summary:
+                context["recent_conversation"] = recent_summary
 
             initial_state: GraphState = {
                 "user_id": request.user_id,
@@ -174,7 +223,9 @@ async def chat_message_stream(
                 "adjustment_history": [],
                 "next_node": None,
                 "error": None,
-                "should_end": False
+                "should_end": False,
+                "asking_for": session.context.asking_for,
+                "pending_intent": session.context.pending_intent
             }
 
             # 运行工作流（流式）
@@ -194,19 +245,25 @@ async def chat_message_stream(
             }
 
             accumulated_text = ""
+            final_state: GraphState = {}
 
             # 累积完整 state（astream 返回 {"node_name": partial_update}）
             accumulated: GraphState = dict(initial_state)
 
             async for raw_state in workflow.run_stream(initial_state):
+                logger.info(f"[stream.yield] raw_type={type(raw_state).__name__} raw_keys={list(raw_state.keys()) if isinstance(raw_state, dict) else raw_state}")
                 # 解析 astream 输出格式：{"node_name": partial_update_dict}
                 if isinstance(raw_state, dict) and len(raw_state) == 1:
                     node_key = list(raw_state.keys())[0]
                     partial = list(raw_state.values())[0]
                     if isinstance(partial, dict):
                         accumulated.update(partial)
+                        logger.info(f"[stream.yield] parsed node={node_key} should_end={accumulated.get('should_end')} msgs={len(accumulated.get('messages', []))}")
+                    else:
+                        logger.info(f"[stream.yield] parsed node={node_key} but partial is not dict: {type(partial)}")
                 else:
                     accumulated.update(raw_state if isinstance(raw_state, dict) else {})
+                    logger.info(f"[stream.yield] parsed multi-key/batch msgs={len(accumulated.get('messages', []))}")
 
                 state: GraphState = accumulated
                 next_node_val = state.get("next_node")
@@ -243,9 +300,11 @@ async def chat_message_stream(
                     last_msg = messages[-1]
                     if last_msg.get("role") == "assistant":
                         new_text = last_msg.get("content", "")
+                        logger.info(f"[stream] text检查 | new_text_len={len(new_text)} acc={len(accumulated_text)}")
                         if new_text and new_text != accumulated_text:
                             # 只发送新增的部分
                             delta = new_text[len(accumulated_text):]
+                            logger.info(f"[stream] yield text | delta_len={len(delta)}")
                             if delta:
                                 yield _sse_event("text", delta)
                                 accumulated_text = new_text
@@ -270,47 +329,39 @@ async def chat_message_stream(
                         yield _sse_event("suggestions", suggestions)
 
                 # 检查是否结束
+                logger.info(f"[stream] should_end={state.get('should_end')} next_node={state.get('next_node')}")
+                # 标记本轮已处理的最终 state（用于最后统一保存）
+                final_state = state
                 if state.get("should_end"):
-                    # 即使是追问回复，也要保存当前已有的信息到 session context
-                    # 这样下一轮对话时可以继承这些信息
-                    if state.get("outfit_plan"):
-                        _update_context(session, {"current_outfit": state.get("outfit_plan")})
-                    if state.get("target_scene"):
-                        _update_context(session, {"target_scene": state.get("target_scene")})
-                    if state.get("target_temperature"):
-                        _update_context(session, {"target_temperature": state.get("target_temperature")})
-                    if state.get("target_date"):
-                        _update_context(session, {"target_date": state.get("target_date")})
-                    if state.get("target_city"):
-                        _update_context(session, {"target_city": state.get("target_city")})
-                    elif state.get("entities", {}).get("city"):
-                        # entities 中有城市信息但 target_city 为空时，也保存
-                        _update_context(session, {"target_city": state.get("entities", {}).get("city")})
-
-                    # 添加助手消息到历史
-                    response_text = _get_text_message(state)
-                    _add_message(session, "assistant", response_text)
-
-                    # 保存 session
-                    session_mgr.save(session)
-
-                    yield _sse_event("done", {"session_id": session.session_id})
-                    done_sent = True
-                    break
+                    logger.info(f"[stream] should_end=True，标记完成")
+                    # 不 break！继续处理后续 yield，确保所有内容发送给客户端
+                    # 保存逻辑移到 finally
 
         except asyncio.CancelledError:
-            # 请求被取消
-            yield _sse_event("error", {"message": "请求被取消"})
-        except Exception as e:
-            yield _sse_event("error", {"message": str(e)})
-        finally:
-            # 确保发送一个最终的 done 事件，防止连接挂起
+            logger.info("[stream] CancelledError")
+            # 也要保存，防止数据丢失
             if not done_sent:
+                _do_save(final_state)
+        except Exception as e:
+            logger.info(f"[stream] Exception: {e}")
+            # 先保存，再发错误事件
+            if not done_sent:
+                success = _do_save(final_state)
                 done_sent = True
-                try:
-                    yield _sse_event("done", {"session_id": None})
-                except Exception:
-                    pass
+            try:
+                yield _sse_event("error", {"message": str(e)})
+            except Exception:
+                pass
+        finally:
+            if not done_sent:
+                success = _do_save(final_state)
+                done_sent = True
+                if success:
+                    yield _sse_event("done", {"session_id": session.session_id})
+                else:
+                    logger.error("[stream.finally] 保存失败，不发送done事件")
+            else:
+                logger.info(f"[stream.finally] done_sent={done_sent}")
 
     return StreamingResponse(
         event_generator(),
@@ -426,7 +477,9 @@ async def chat_message(
         "adjustment_history": [],
         "next_node": None,
         "error": None,
-        "should_end": False
+        "should_end": False,
+        "asking_for": session.context.asking_for,
+        "pending_intent": session.context.pending_intent
     }
 
     try:
@@ -454,6 +507,15 @@ async def chat_message(
             _update_context(session, {"target_city": result.get("target_city")})
         elif result.get("entities", {}).get("city"):
             _update_context(session, {"target_city": result.get("entities", {}).get("city")})
+        # 保存追问状态
+        if result.get("asking_for"):
+            _update_context(session, {"asking_for": result.get("asking_for")})
+        else:
+            _update_context(session, {"asking_for": None})
+        if result.get("pending_intent"):
+            _update_context(session, {"pending_intent": result.get("pending_intent")})
+        else:
+            _update_context(session, {"pending_intent": None})
 
         # 添加助手消息到历史
         _add_message(session, "assistant", response_message)
@@ -563,11 +625,20 @@ def _update_context(session: DialogueSessionData, updates: Dict[str, Any]) -> No
         ctx.target_temperature = updates["target_temperature"]
     if "current_outfit" in updates:
         ctx.current_outfit = updates["current_outfit"]
+    if "asking_for" in updates:
+        ctx.asking_for = updates["asking_for"]
+    if "pending_intent" in updates:
+        ctx.pending_intent = updates["pending_intent"]
 
 
 def _get_context_dict(session: DialogueSessionData) -> Dict[str, Any]:
     """获取上下文字典"""
-    return session.context.to_dict()
+    ctx_dict = session.context.to_dict()
+    logger.info(f"[session] context恢复 | target_city={ctx_dict.get('target_city')} target_scene={ctx_dict.get('target_scene')} asking_for={ctx_dict.get('asking_for')} pending_intent={ctx_dict.get('pending_intent')}")
+    # 确保所有字段都有值（避免 None 值导致字段丢失）
+    ctx_dict.setdefault("asking_for", None)
+    ctx_dict.setdefault("pending_intent", None)
+    return ctx_dict
 
 
 def _get_text_message(result: GraphState) -> str:

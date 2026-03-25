@@ -61,3 +61,7 @@ class GraphState(TypedDict):
     error: Optional[str]                           # 错误信息
     should_end: bool                              # 是否结束对话
     response_data: Optional[Dict[str, Any]]        # 响应附加数据（不出现在路由条件中）
+
+    # === 多轮追问状态 ===
+    asking_for: Optional[str]                      # 当前追问的字段："city" / "scene" / None
+    pending_intent: Optional[str]                  # 用户未完成的意图，继承上一轮

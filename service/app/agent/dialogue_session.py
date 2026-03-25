@@ -76,6 +76,9 @@ class ConversationContext:
     target_scene: Optional[str] = None
     target_temperature: Optional[float] = None
     current_outfit: Optional[Dict[str, Any]] = None
+    # 追问状态（跨轮次保持）
+    asking_for: Optional[str] = None  # "city" / "scene" / None
+    pending_intent: Optional[str] = None  # 用户未完成的意图
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -90,6 +93,8 @@ class ConversationContext:
             target_scene=data.get("target_scene"),
             target_temperature=data.get("target_temperature"),
             current_outfit=data.get("current_outfit"),
+            asking_for=data.get("asking_for"),
+            pending_intent=data.get("pending_intent"),
         )
 
 
@@ -357,6 +362,8 @@ class DialogueSessionManager:
             existing.context = db_data["context"]
             existing.last_active_at = datetime.fromisoformat(db_data["last_active_at"]) if isinstance(db_data["last_active_at"], str) else db_data["last_active_at"]
             existing.expires_at = datetime.fromisoformat(db_data["expires_at"]) if isinstance(db_data["expires_at"], str) else db_data["expires_at"]
+            # 强制 flush，确保 ORM 脏跟踪触发
+            self.db.flush()
         else:
             new_row = ConversationSessionModel(
                 id=session.session_id,
@@ -369,6 +376,7 @@ class DialogueSessionManager:
                 expires_at=datetime.fromisoformat(db_data["expires_at"]) if isinstance(db_data["expires_at"], str) else db_data["expires_at"]
             )
             self.db.add(new_row)
+            self.db.flush()
 
         self.db.commit()
 

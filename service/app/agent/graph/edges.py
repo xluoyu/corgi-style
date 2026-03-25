@@ -1,6 +1,9 @@
 """条件分支函数"""
+import logging
 from typing import Literal, Optional
 from app.agent.graph.state import GraphState, Intent
+
+logger = logging.getLogger(__name__)
 
 
 def _get_intent_str(state: GraphState) -> Optional[str]:
@@ -18,14 +21,28 @@ def _get_intent_str(state: GraphState) -> Optional[str]:
 def route_by_intent(state: GraphState) -> Literal["wardrobe_query", "generate_outfit", "feedback", "response"]:
     """根据意图类型路由"""
     intent_str = _get_intent_str(state)
+    city = state.get("target_city")
+    scene = state.get("target_scene")
+    logger.info(f"[route] intent={intent_str} city={city!r} scene={scene!r}")
 
     if intent_str == "query_wardrobe":
         return "wardrobe_query"
     elif intent_str == "generate_outfit":
-        return "generate_outfit"
+        # city + scene 都完整时才进子图，否则先追问补全信息
+        if city and scene:
+            logger.info(f"[route] → generate_outfit (city+scene完整)")
+            return "generate_outfit"
+        missing = []
+        if not city:
+            missing.append("city")
+        if not scene:
+            missing.append("scene")
+        logger.info(f"[route] → response (缺失: {missing})")
+        return "response"
     elif intent_str == "give_feedback":
         return "feedback"
     else:
+        logger.info(f"[route] → response (intent={intent_str}未知)")
         return "response"
 
 

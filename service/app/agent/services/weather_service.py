@@ -56,7 +56,7 @@ class WeatherService:
         if not self.api_key:
             raise ValueError("高德天气 API Key 未配置")
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=3.0) as client:
             response = await client.get(
                 self.base_url,
                 params={
