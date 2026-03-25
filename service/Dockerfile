@@ -2,7 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# psycopg2-binary 自带预编译二进制，无需额外系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    libjpeg-dev \
+    zlib1g-dev \
+    libpng-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get autoremove
 
 # 安装 Python 依赖
 COPY requirements.txt .
