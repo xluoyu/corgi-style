@@ -17,6 +17,9 @@ from app.agent.dialogue_session import (
 )
 from app.agent.supervisor import SupervisorAgent
 from app.agent.tools.context import set_tool_context
+from app.agent.graph.workflow_v2 import DialogueWorkflow as DialogueWorkflowV2
+from app.agent.graph.workflow_v3 import DialogueWorkflowV3
+from app.agent.graph.state_v2 import create_initial_state, GraphState
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +291,336 @@ async def chat_message(
         raise HTTPException(status_code=500, detail=f"对话处理失败: {str(e)}")
 
 
+# ============================================================
+# API 路由 v2（基于 LangGraph StateGraph）
+# ============================================================
+
+@router.post("/message/v2", response_model=ChatMessageResponse)
+async def chat_message_v2(
+    request: ChatMessageRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    处理用户对话消息 v2（基于 LangGraph StateGraph v2）
+
+    使用 workflow_v2.py 中的 DialogueWorkflow，
+    支持 v2.0 完整意图和 OutfitAdvisor 节点。
+    """
+    # 创建 Session 管理器
+    session_mgr = DialogueSessionManager(db)
+
+    # 获取或创建 session
+    session = session_mgr.get_or_create(
+        session_id=request.session_id,
+        user_id=request.user_id
+    )
+
+    # 添加用户消息到历史
+    _add_message(session, "user", request.message)
+
+    # 更新上下文
+    if request.context:
+        _update_context(session, request.context)
+
+    # 加载用户画像（供 LLM 使用）
+    user_profile = _load_user_profile(db, request.user_id)
+    context = _get_context_dict(session)
+    context.update(user_profile)
+
+    # 从 session 恢复 v2 状态
+    session_context = session.context.to_dict() if hasattr(session.context, 'to_dict') else {}
+
+    # 构建初始状态 v2
+    initial_state = create_initial_state(
+        user_id=request.user_id,
+        session_id=session.session_id
+    )
+    initial_state["messages"] = [{"role": "user", "content": request.message}]
+    initial_state["context"] = context
+    # 从 session 恢复关键字段
+    initial_state["target_city"] = session_context.get("target_city") or session.context.target_city
+    initial_state["target_scene"] = session_context.get("target_scene") or session.context.target_scene
+    initial_state["target_date"] = session_context.get("target_date") or session.context.target_date
+    initial_state["target_temperature"] = session_context.get("target_temperature") or session.context.target_temperature
+    initial_state["asking_for"] = session_context.get("asking_for") or session.context.asking_for
+    initial_state["pending_intent"] = session_context.get("pending_intent") or session.context.pending_intent
+    # v2.0 新增字段
+    initial_state["advisor_iteration_count"] = session_context.get("advisor_iteration_count", 0)
+    initial_state["advisor_rejected_features"] = session_context.get("advisor_rejected_features", [])
+    initial_state["advisor_accepted_features"] = session_context.get("advisor_accepted_features", [])
+    initial_state["outfit_plan"] = session_context.get("outfit_plan")
+    initial_state["outfit_evaluation"] = session_context.get("outfit_evaluation")
+    initial_state["match_score"] = session_context.get("match_score", 0.0)
+
+    try:
+        # 运行 v2 工作流
+        set_tool_context(db, request.user_id)
+        workflow = DialogueWorkflowV2(db)
+
+        result = await workflow.run(initial_state)
+
+        # 提取响应
+        response_data = result.get("response_data", {})
+        contents = []
+        final_text = ""
+
+        # 从 messages 获取助手回复
+        messages = result.get("messages", [])
+        for msg in reversed(messages):
+            if msg.get("role") == "assistant":
+                final_text = msg.get("content", "")
+                break
+
+        contents.append(ChatResponseItem(type="text", content=final_text))
+
+        # 包含 outfit_result 类型数据
+        if response_data.get("type") == "outfit_result":
+            contents.append(ChatResponseItem(
+                type="outfit_card",
+                content={
+                    "plan": response_data.get("plan"),
+                    "clothes": response_data.get("clothes"),
+                    "match_score": response_data.get("match_score"),
+                    "evaluation": response_data.get("evaluation"),
+                    "has_clothes": response_data.get("has_clothes", False),
+                }
+            ))
+
+        # 保存到 session（持久化关键状态）
+        _save_v2_state_to_session(session, result)
+        session_mgr.save(session)
+
+        return ChatMessageResponse(
+            session_id=session.session_id,
+            message=final_text,
+            contents=contents,
+            data=response_data,
+            suggestions=None
+        )
+
+    except Exception as e:
+        logger.error(f"[chat_v2] Exception: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"对话处理失败: {str(e)}")
+
+
+# ============================================================
+# API 路由 v3（基于 LangGraph Multi-Agent）
+# ============================================================
+
+@router.post("/message/v3", response_model=ChatMessageResponse)
+async def chat_message_v3(
+    request: ChatMessageRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    处理用户对话消息 v3（基于 LangGraph Multi-Agent 架构）
+
+    使用 workflow_v3.py 中的 DialogueWorkflowV3，
+    Supervisor 负责任务分发，WeatherAgent/WardrobeAgent/OutfitAdvisorAgent/KnowledgeAgent 执行具体任务。
+    """
+    # 创建 Session 管理器
+    session_mgr = DialogueSessionManager(db)
+
+    # 获取或创建 session
+    session = session_mgr.get_or_create(
+        session_id=request.session_id,
+        user_id=request.user_id
+    )
+
+    # 添加用户消息到历史
+    _add_message(session, "user", request.message)
+
+    # 更新上下文
+    if request.context:
+        _update_context(session, request.context)
+
+    # 加载用户画像（供 LLM 使用）
+    user_profile = _load_user_profile(db, request.user_id)
+    context = _get_context_dict(session)
+    context.update(user_profile)
+
+    # 从 session 恢复 v3 状态
+    session_context = session.context.to_dict() if hasattr(session.context, 'to_dict') else {}
+
+    # 构建初始状态 v3（基于 GraphState）
+    initial_state = create_initial_state(
+        user_id=request.user_id,
+        session_id=session.session_id
+    )
+    initial_state["messages"] = [{"role": "user", "content": request.message}]
+    initial_state["context"] = context
+    # 从 session 恢复关键字段
+    initial_state["target_city"] = session_context.get("target_city") or session.context.target_city
+    initial_state["target_scene"] = session_context.get("target_scene") or session.context.target_scene
+    initial_state["target_date"] = session_context.get("target_date") or session.context.target_date
+    initial_state["target_temperature"] = session_context.get("target_temperature") or session.context.target_temperature
+    # v3 新增：从 session 恢复多 Agent 状态
+    initial_state["last_agent"] = session_context.get("last_agent")
+    initial_state["routing_decision"] = session_context.get("routing_decision")
+    initial_state["routing_params"] = session_context.get("routing_params") or {}
+    initial_state["agent_result"] = None
+    initial_state["weather_data"] = session_context.get("weather_data")
+    initial_state["wardrobe_items"] = []
+    initial_state["supervisor_response"] = session_context.get("supervisor_response")
+
+    try:
+        # 运行 v3 多 Agent 工作流
+        set_tool_context(db, request.user_id)
+        workflow = DialogueWorkflowV3(db)
+
+        result = await workflow.run(initial_state)
+
+        # 提取响应
+        response_data = result.get("response_data", {})
+        contents = []
+        final_text = ""
+
+        # 从 messages 获取助手回复
+        messages = result.get("messages", [])
+        for msg in reversed(messages):
+            if msg.get("role") == "assistant":
+                final_text = msg.get("content", "")
+                break
+
+        # 如果没有从 messages 获取到，尝试从 response_data 获取
+        if not final_text and response_data.get("content"):
+            final_text = response_data.get("content")
+
+        contents.append(ChatResponseItem(type="text", content=final_text if final_text else ""))
+
+        # 包含 outfit_result 类型数据
+        if response_data.get("type") == "outfit_result":
+            contents.append(ChatResponseItem(
+                type="outfit_card",
+                content={
+                    "plan": response_data.get("plan"),
+                    "clothes": response_data.get("clothes"),
+                    "match_score": response_data.get("match_score"),
+                    "evaluation": response_data.get("evaluation"),
+                    "has_clothes": response_data.get("has_clothes", False),
+                }
+            ))
+
+        # 保存到 session（持久化关键状态）
+        _save_v2_state_to_session(session, result)
+        session_mgr.save(session)
+
+        return ChatMessageResponse(
+            session_id=session.session_id,
+            message=final_text if final_text else "",
+            contents=contents,
+            data=response_data,
+            suggestions=None
+        )
+
+    except Exception as e:
+        logger.error(f"[chat_v3] Exception: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"对话处理失败: {str(e)}")
+
+
+# ============================================================
+# API 路由 v3 流式（基于 LangGraph Multi-Agent + SSE）
+# ============================================================
+
+@router.post("/message/v3/stream")
+async def chat_message_v3_stream(
+    request: ChatMessageRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    流式对话响应 v3（基于 LangGraph Multi-Agent + SSE）
+
+    event_type: thinking, routing_decision, agent_started, agent_finished,
+                agent_result, response, state_update, done, error
+    """
+    done_sent = False
+
+    async def event_generator():
+        nonlocal done_sent
+        session = None
+        session_mgr = None
+
+        try:
+            # 设置工具上下文（ContextVar）
+            set_tool_context(db, request.user_id)
+
+            # Session 管理
+            session_mgr = DialogueSessionManager(db)
+            session = session_mgr.get_or_create(
+                session_id=request.session_id,
+                user_id=request.user_id
+            )
+
+            # 添加用户消息到历史
+            _add_message(session, "user", request.message)
+
+            # 更新上下文
+            if request.context:
+                _update_context(session, request.context)
+
+            # 加载用户画像（供 LLM 使用）
+            user_profile = _load_user_profile(db, request.user_id)
+            context = _get_context_dict(session)
+            context.update(user_profile)
+
+            # 从 session 恢复 v3 状态
+            session_context = session.context.to_dict() if hasattr(session.context, 'to_dict') else {}
+
+            # 构建初始状态 v3（基于 GraphState）
+            initial_state = create_initial_state(
+                user_id=request.user_id,
+                session_id=session.session_id
+            )
+            initial_state["messages"] = [{"role": "user", "content": request.message}]
+            initial_state["context"] = context
+            # 从 session 恢复关键字段
+            initial_state["target_city"] = session_context.get("target_city") or session.context.target_city
+            initial_state["target_scene"] = session_context.get("target_scene") or session.context.target_scene
+            initial_state["target_date"] = session_context.get("target_date") or session.context.target_date
+            initial_state["target_temperature"] = session_context.get("target_temperature") or session.context.target_temperature
+            # v3 新增：支持多 Agent 路由
+            initial_state["routing_decision"] = None
+            initial_state["routing_params"] = {}
+            initial_state["agent_result"] = None
+            initial_state["weather_data"] = None
+            initial_state["wardrobe_items"] = []
+            initial_state["supervisor_response"] = None
+
+            # 运行 v3 多 Agent 工作流（流式）
+            workflow = DialogueWorkflowV3(db)
+
+            async for event in workflow.run_stream_sse(initial_state):
+                yield _sse_event(event["type"], event)
+
+            done_sent = True
+            yield _sse_event("done", {"session_id": session.session_id})
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"[stream_v3] Exception: {e}", exc_info=True)
+            yield _sse_event("error", {"message": str(e)})
+        finally:
+            # 保存到 Session
+            if session_mgr is not None and session is not None:
+                try:
+                    # 保存 v3 相关状态
+                    session_mgr.save(session)
+                    logger.info(f"[stream_v3.finally] Session 保存成功: {session.session_id}")
+                except Exception as e:
+                    logger.error(f"[stream_v3.finally] 保存失败: {e}")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @router.get("/session/{session_id}", response_model=SessionInfoResponse)
 async def get_session(session_id: str, db: Session = Depends(get_db)):
     """获取 session 状态"""
@@ -424,3 +757,34 @@ def _generate_suggestions(state: Dict[str, Any]) -> List[Dict[str, Any]]:
         })
 
     return suggestions
+
+
+def _save_v2_state_to_session(session: DialogueSessionData, state: GraphState) -> None:
+    """
+    将工作流的最终状态持久化到 session
+
+    保存关键字段以便下一轮对话恢复上下文：
+    - target_city, target_scene, target_date, target_temperature
+    - asking_for, pending_intent
+    - outfit_plan, outfit_evaluation, match_score（用于反馈迭代）
+    - v3 特有字段: last_agent, routing_decision, routing_params, weather_data, supervisor_response
+    """
+    ctx = session.context
+    ctx.target_city = state.get("target_city")
+    ctx.target_scene = state.get("target_scene")
+    ctx.target_date = state.get("target_date")
+    ctx.target_temperature = state.get("target_temperature")
+    ctx.asking_for = state.get("asking_for")
+    ctx.pending_intent = state.get("pending_intent")
+
+    # v2.0 状态
+    ctx.outfit_plan = state.get("outfit_plan")
+    ctx.outfit_evaluation = state.get("outfit_evaluation")
+    ctx.match_score = state.get("match_score", 0.0)
+
+    # v3.0 多 Agent 状态
+    ctx.last_agent = state.get("last_agent")
+    ctx.routing_decision = state.get("routing_decision")
+    ctx.routing_params = state.get("routing_params")
+    ctx.weather_data = state.get("weather_data")
+    ctx.supervisor_response = state.get("supervisor_response")

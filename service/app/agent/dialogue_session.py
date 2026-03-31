@@ -79,6 +79,16 @@ class ConversationContext:
     # 追问状态（跨轮次保持）
     asking_for: Optional[str] = None  # "city" / "scene" / None
     pending_intent: Optional[str] = None  # 用户未完成的意图
+    # v2.0 状态持久化（Phase 1）
+    outfit_plan: Optional[Dict[str, Any]] = None  # 穿搭方案（用于反馈迭代）
+    outfit_evaluation: Optional[Dict[str, Any]] = None  # 方案评价
+    match_score: float = 0.0  # 匹配分数
+    # v3.0 多 Agent 状态持久化
+    last_agent: Optional[str] = None  # 最后执行的 Agent 名称
+    routing_decision: Optional[str] = None  # 当前路由决定
+    routing_params: Optional[Dict[str, Any]] = None  # 路由参数
+    weather_data: Optional[Dict[str, Any]] = None  # 天气数据缓存
+    supervisor_response: Optional[str] = None  # Supervisor 直接回复的文本
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -95,6 +105,14 @@ class ConversationContext:
             current_outfit=data.get("current_outfit"),
             asking_for=data.get("asking_for"),
             pending_intent=data.get("pending_intent"),
+            outfit_plan=data.get("outfit_plan"),
+            outfit_evaluation=data.get("outfit_evaluation"),
+            match_score=data.get("match_score", 0.0),
+            last_agent=data.get("last_agent"),
+            routing_decision=data.get("routing_decision"),
+            routing_params=data.get("routing_params"),
+            weather_data=data.get("weather_data"),
+            supervisor_response=data.get("supervisor_response"),
         )
 
 

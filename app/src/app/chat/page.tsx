@@ -8,7 +8,7 @@ import { ThinkingIndicator } from "./ThinkingIndicator";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
 import { ClothesDetailModal } from "./ClothesDetailModal";
-import { chatMessageStream } from "@/lib/api";
+import { chatMessageStreamV3 } from "@/lib/api";
 import { getUserId } from "@/lib/api";
 import type { ChatMessage, ThinkingItem, OutfitCard, ClothesItem } from "@/types/chat";
 
@@ -26,16 +26,22 @@ export default function ChatPage() {
   const [selectedClothes, setSelectedClothes] = useState<ClothesItem | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const TOOL_NAME_MAP: Record<string, string> = {
-  get_weather: '获取天气',
-  analyze_clothing_image: '分析图片',
-  search_wardrobe: '搜索衣柜',
-  add_clothes_to_wardrobe: '添加衣物',
-  plan_outfit: '规划穿搭',
-  get_outfit_history: '查询历史',
-  remember_context: '记住信息',
-  recall_context: '回忆信息',
-  search_knowledge_base: '知识问答',
-};
+    // v1 Tool names
+    get_weather: '获取天气',
+    analyze_clothing_image: '分析图片',
+    search_wardrobe: '搜索衣柜',
+    add_clothes_to_wardrobe: '添加衣物',
+    plan_outfit: '规划穿搭',
+    get_outfit_history: '查询历史',
+    remember_context: '记住信息',
+    recall_context: '回忆信息',
+    search_knowledge_base: '知识问答',
+    // v3 Agent names
+    weather_agent: '天气查询',
+    wardrobe_agent: '衣柜查询',
+    outfit_advisor_agent: '穿搭推荐',
+    knowledge_agent: '知识问答',
+  };
 
 function getToolName(tool: string): string {
   return TOOL_NAME_MAP[tool] ?? tool;
@@ -102,8 +108,8 @@ const [error, setError] = useState<string | null>(null);
     let accumulatedText = "";
 
     try {
-      // 调用流式 API
-      const stream = chatMessageStream({
+      // 调用流式 API (v3)
+      const stream = chatMessageStreamV3({
         user_id: userId,
         session_id: sessionId || undefined,
         message: text,
@@ -136,31 +142,6 @@ const [error, setError] = useState<string | null>(null);
             }
             break;
           }
-
-          case "text":
-            // 确保 content 是字符串，防止 [object Object]
-            accumulatedText += getContentStr(event.content);
-            // 更新最后一条 AI 消息
-            setMessages((prev) => {
-              const lastMsg = prev[prev.length - 1];
-              if (lastMsg?.role === "assistant" && !lastMsg.outfitCard) {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...lastMsg, content: accumulatedText },
-                ];
-              }
-              // 创建新消息
-              return [
-                ...prev,
-                {
-                  id: `assistant-${Date.now()}`,
-                  role: "assistant",
-                  content: accumulatedText,
-                  timestamp: new Date().toISOString(),
-                },
-              ];
-            });
-            break;
 
           case "outfit_card":
             // 创建穿搭卡片消息
@@ -260,6 +241,103 @@ const [error, setError] = useState<string | null>(null);
                 ];
               }
               return prev;
+            });
+            break;
+          }
+
+          // ===== v3 事件处理 =====
+          case "routing_decision": {
+            // v3 路由决定事件
+            const content = event.content as { agent?: string; params?: unknown } | null;
+            const agentName = content?.agent ? getToolName(content.agent) : "未知";
+            setThinkingItems((prev) => [
+              ...prev,
+              {
+                node: content?.agent || "routing",
+                node_name: "路由决定",
+                text: `将请求转发至 ${agentName}...`,
+                timestamp: Date.now(),
+                status: "pending" as const,
+              },
+            ]);
+            break;
+          }
+
+          case "agent_started": {
+            // v3 Agent 开始执行
+            const content = event.content as { agent?: string } | null;
+            const agentName = content?.agent ? getToolName(content.agent) : "未知Agent";
+            setThinkingItems((prev) => [
+              ...prev,
+              {
+                node: content?.agent || "agent",
+                node_name: agentName,
+                text: `${agentName} 执行中...`,
+                timestamp: Date.now(),
+                status: "pending" as const,
+              },
+            ]);
+            break;
+          }
+
+          case "agent_finished": {
+            // v3 Agent 执行完成
+            const content = event.content as { agent?: string; result?: unknown } | null;
+            const agentName = content?.agent ? getToolName(content.agent) : "Agent";
+            const resultStr = getContentStr(content?.result);
+
+            let isError = false;
+            if (resultStr) {
+              try {
+                const parsed = JSON.parse(resultStr);
+                isError = !!(parsed && typeof parsed === "object" && "error" in parsed);
+              } catch {
+                // 解析失败
+              }
+            }
+
+            setThinkingItems((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.status === "pending" && last.node === content?.agent) {
+                return [
+                  ...prev.slice(0, -1),
+                  {
+                    ...last,
+                    text: isError ? `❌ ${agentName} 执行失败` : `${agentName} 执行完成`,
+                    status: isError ? "error" as const : "success" as const,
+                  },
+                ];
+              }
+              return prev;
+            });
+            break;
+          }
+
+          case "response":
+          case "text": {
+            // v3 response 或 v1 text 事件
+            const content = event.content as { content?: unknown; data?: unknown } | null;
+            const text = content?.content !== undefined ? getContentStr(content.content) : getContentStr(event.content);
+            accumulatedText += text;
+            // 更新最后一条 AI 消息
+            setMessages((prev) => {
+              const lastMsg = prev[prev.length - 1];
+              if (lastMsg?.role === "assistant" && !lastMsg.outfitCard) {
+                return [
+                  ...prev.slice(0, -1),
+                  { ...lastMsg, content: accumulatedText },
+                ];
+              }
+              // 创建新消息
+              return [
+                ...prev,
+                {
+                  id: `assistant-${Date.now()}`,
+                  role: "assistant",
+                  content: accumulatedText,
+                  timestamp: new Date().toISOString(),
+                },
+              ];
             });
             break;
           }

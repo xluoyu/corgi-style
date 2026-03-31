@@ -12,7 +12,13 @@ export type ChatEventType =
   | 'outfit_card'
   | 'suggestions'
   | 'done'
-  | 'error';
+  | 'error'
+  // v3 多 Agent 事件
+  | 'routing_decision'
+  | 'agent_started'
+  | 'agent_finished'
+  | 'response'
+  | 'state_update';
 
 // Tool 调用相关
 export interface ToolCalledItem {
@@ -46,7 +52,13 @@ export type SSEEvent =
   | { event: 'tool_called'; content: ToolCalledItem }
   | { event: 'tool_result'; content: ToolResultItem }
   | { event: 'done'; content: { session_id: string } }
-  | { event: 'error'; content: { message: string } };
+  | { event: 'error'; content: { message: string } }
+  // v3 多 Agent 事件
+  | { event: 'routing_decision'; content: { agent: string; params: any } }
+  | { event: 'agent_started'; content: { agent: string } }
+  | { event: 'agent_finished'; content: { agent: string; result: any } }
+  | { event: 'response'; content: { content: string; data: any } }
+  | { event: 'state_update'; content: any };
 
 // 思考过程项
 export interface ThinkingItem {
