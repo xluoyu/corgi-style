@@ -41,10 +41,13 @@ COMMENT ON COLUMN users.last_active_at IS '最后活跃时间';
 CREATE TABLE user_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    nickname TEXT DEFAULT '时尚路人甲',
+    avatar_url TEXT,
     gender TEXT,
     style_preferences JSONB DEFAULT '[]',
-    season_preference JSONB DEFAULT '[]',
     default_occasion TEXT DEFAULT 'casual',
+    height INTEGER,
+    weight INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT unique_user_profile UNIQUE (user_id)
@@ -53,10 +56,13 @@ CREATE TABLE user_profiles (
 CREATE INDEX idx_profiles_user_id ON user_profiles(user_id);
 
 COMMENT ON TABLE user_profiles IS '用户画像表，存储个性化偏好';
+COMMENT ON COLUMN user_profiles.nickname IS '用户昵称，默认"时尚路人甲"';
+COMMENT ON COLUMN user_profiles.avatar_url IS '头像 URL，默认取 avataaars 第一条';
 COMMENT ON COLUMN user_profiles.gender IS '性别：male/female/other';
 COMMENT ON COLUMN user_profiles.style_preferences IS '风格偏好列表，如 ["minimalist", "business"]';
-COMMENT ON COLUMN user_profiles.season_preference IS '季节偏好列表，如 ["spring", "autumn"]';
 COMMENT ON COLUMN user_profiles.default_occasion IS '默认场合，如 casual/work/formal';
+COMMENT ON COLUMN user_profiles.height IS '身高（cm）';
+COMMENT ON COLUMN user_profiles.weight IS '体重（kg）';
 
 -- -----------------------------------------------------------------------------
 -- 衣物表 (clothing_items)
@@ -347,3 +353,34 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- =============================================================================
 -- 完成
 -- =============================================================================
+
+-- =============================================================================
+-- 迁移脚本：v1.0 -> v1.1 新增用户画像字段（仅需执行一次）
+-- =============================================================================
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_profiles' AND column_name = 'nickname') THEN
+        ALTER TABLE user_profiles ADD COLUMN nickname TEXT DEFAULT '时尚路人甲';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_profiles' AND column_name = 'avatar_url') THEN
+        ALTER TABLE user_profiles ADD COLUMN avatar_url TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_profiles' AND column_name = 'height') THEN
+        ALTER TABLE user_profiles ADD COLUMN height INTEGER;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_profiles' AND column_name = 'weight') THEN
+        ALTER TABLE user_profiles ADD COLUMN weight INTEGER;
+    END IF;
+END
+$$ LANGUAGE plpgsql;
+
+-- =============================================================================
+-- 迁移脚本：v1.1 -> v1.2 移除 season_preference 字段（仅需执行一次）
+-- =============================================================================
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_profiles' AND column_name = 'season_preference') THEN
+        ALTER TABLE user_profiles DROP COLUMN season_preference;
+    END IF;
+END
+$$ LANGUAGE plpgsql;

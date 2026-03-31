@@ -12,6 +12,7 @@ interface UseUserResult {
 }
 
 const USER_CACHE_KEY = "corgi_user_cache";
+const USER_PROFILE_KEY = "corgi_user_profile";
 
 /**
  * useUser - 用户初始化 Hook
@@ -42,6 +43,7 @@ export function useUser(): UseUserResult {
 
   const refetch = useCallback(() => {
     localStorage.removeItem(USER_CACHE_KEY);
+    localStorage.removeItem(USER_PROFILE_KEY);
     localStorage.removeItem("user_id");
     initUser();
   }, [initUser]);

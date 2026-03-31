@@ -7,6 +7,10 @@
 export interface UserInfo {
   id: string;
   device_fingerprint: string;
+  nickname: string;
+  avatar_url: string;
+  height?: number;
+  weight?: number;
   last_active_at: string;
   created_at: string;
   updated_at: string;
@@ -15,10 +19,13 @@ export interface UserInfo {
 export interface UserProfile {
   id: string;
   user_id: string;
+  nickname?: string;
+  avatar_url?: string;
   gender?: string;
   style_preferences: string[];
-  season_preference: string[];
   default_occasion: string;
+  height?: number;
+  weight?: number;
   created_at: string;
   updated_at: string;
 }
@@ -29,10 +36,28 @@ export interface GetUserOrCreateRequest {
 
 export interface UpdateUserInfoRequest {
   user_id: string;
+  nickname?: string;
+  avatar_url?: string;
   gender?: string;
   style_preferences?: string[];
-  season_preference?: string[];
   default_occasion?: string;
+  height?: number;
+  weight?: number;
+}
+
+export interface UserProfileResponse {
+  user_id: string;
+  device_fingerprint: string;
+  nickname: string;
+  avatar_url: string;
+  gender?: string;
+  style_preferences?: string;
+  default_occasion: string;
+  height?: number;
+  weight?: number;
+  clothes_count: number;
+  outfit_count: number;
+  created_at: string;
 }
 
 // ============ 衣物相关 ============

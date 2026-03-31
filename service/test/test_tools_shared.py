@@ -164,7 +164,8 @@ class TestRememberContext:
         assert data["status"] == "remembered"
         assert data["remembered"]["city"] == "重庆"
         assert data["remembered"]["temperature"] == 30.0
-        assert data["remembered"]["scene"] is None
+        # scene 默认为 "daily"
+        assert data["remembered"]["scene"] == "daily"
 
     @pytest.mark.asyncio
     async def test_colors_null(self):

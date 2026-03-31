@@ -42,18 +42,30 @@ SYSTEM_PROMPT = """你是一个专业的时尚穿搭助手。
 - 回答天气相关问题
 - 提供穿搭知识建议
 
+【核心原则】
+当用户请求穿搭推荐时，你应该主动收集信息并生成推荐，**不要主动提问**，而是：
+1. 先记住用户提供的信息（调用 remember_context）
+2. 主动查询天气（调用 get_weather）
+3. 查询用户衣柜（调用 search_wardrobe）
+4. 生成穿搭方案（调用 plan_outfit）
+
 【工具使用规则】
-- 用户请求穿搭推荐 → 先调用 get_weather，再调用 search_wardrobe，最后调用 plan_outfit
-  （注意：plan_outfit 需要传入 weather 数据和 wardrobe 数据，不要在 plan_outfit 内部再次查询）
+- 用户请求穿搭推荐：
+  1. 调用 remember_context 记住信息（city/date 必填，scene 可选，默认为 "daily"）
+  2. 调用 get_weather 查询天气（只需 city 参数）
+  3. 调用 search_wardrobe 查询衣柜
+  4. 调用 plan_outfit 生成穿搭
 - 用户上传衣物图片 → 先 analyze_clothing_image 识别，再用 add_clothes_to_wardrobe 存储
 - 用户询问历史 → 直接调用 get_outfit_history
 - 用户提到城市/场合/日期 → 调用 remember_context 记住信息
 - 用户询问穿搭知识 → 调用 search_knowledge_base
 
-【追问策略】
-- 缺少城市 → "请问要去哪个城市呢？"
-- 缺少场合 → "请问是什么场合呢？（上班/约会/运动...）"
-- 用户意图不明 → "我需要更多信息来帮您，请描述一下具体需求？"
+【信息补全规则】
+- 如果用户没有提供城市：**不要提问，直接从上下文推断或使用默认值**
+- 如果用户没有提供场合：默认使用 "daily"（日常休闲）
+- 如果用户说"旅游"：scene 映射为 "casual"
+- 如果用户说"上班"：scene 映射为 "work"
+- 如果用户说"约会"：scene 映射为 "date"
 
 【穿衣规则】（内置知识，可直接使用）
 - 18-25℃：轻薄外套/长袖即可
@@ -65,6 +77,7 @@ SYSTEM_PROMPT = """你是一个专业的时尚穿搭助手。
 - 口语化，每句不超过15字
 - 主动给搭配理由
 - 用 emoji 标注品类（👕👖🧥🎒）
+- **不要提问，直接行动**
 
 【反馈处理】
 - 用户说"太正式/太休闲/换个颜色" → 调用 remember_context 更新 scene/style，再调用 plan_outfit
@@ -131,8 +144,18 @@ class SupervisorAgent:
         """构建消息列表，注入上下文"""
         # 1. 当前记住的信息
         memory_text = self.memory.to_context_string()
-        # 2. 缺失字段
-        missing = self.memory.missing_fields
+
+        # 2. 自动计算缺失字段（基于已记住的信息动态计算）
+        missing = []
+        if not self.memory.target_city:
+            missing.append("city")
+        if not self.memory.target_scene:
+            missing.append("scene")
+        # 合并 memory 中显式设置的 missing_fields
+        for f in self.memory.missing_fields:
+            if f not in missing:
+                missing.append(f)
+
         missing_text = (
             f"\n【当前缺少的信息】需要用户提供：{', '.join(missing)}"
             if missing
@@ -176,9 +199,17 @@ class SupervisorAgent:
         while response.tool_calls and turn < max_turns:
             turn += 1
 
-            for tc in response.tool_calls:
-                tool_name = tc.name
-                tool_args = tc.args
+            # 兼容 LangChain 1.2+ 格式：tool_calls 是字典列表
+            tool_calls_raw = response.tool_calls if isinstance(response.tool_calls[0], dict) else \
+                             [{"name": tc.name, "args": tc.args, "id": getattr(tc, "id", None)} for tc in response.tool_calls]
+
+            # 先添加 AIMessage（包含 tool_calls），再添加所有 ToolMessage
+            messages.append(response)
+
+            for tc in tool_calls_raw:
+                tool_name = tc.get("name") or tc.get("function", {}).get("name", "")
+                tool_args = tc.get("args") or tc.get("function", {}).get("arguments", {})
+                tool_call_id = tc.get("id") or tc.get("tool_call_id") or f"call_{tool_name}"
 
                 yield {
                     "type": "tool_called",
@@ -207,15 +238,16 @@ class SupervisorAgent:
                 messages.append(
                     ToolMessage(
                         name=tool_name,
-                        content=result
+                        content=result,
+                        tool_call_id=tool_call_id
                     )
                 )
 
             # 继续 LLM 调用
             response = await self.llm_with_tools.ainvoke(messages)
 
-        # 最终文本输出
-        final_text = response.content if response.content else ""
+        # 最终文本输出（处理 LangChain 内容块格式）
+        final_text = self._extract_text_from_content(response.content)
 
         # 添加助手回复到记忆
         if final_text:
@@ -223,6 +255,28 @@ class SupervisorAgent:
 
         yield {"type": "text", "content": final_text}
         yield {"type": "done", "content": final_text}
+
+    def _extract_text_from_content(self, content: Any) -> str:
+        """从 LangChain AIMessage.content 提取纯文本
+
+        AIMessage.content 可以是：
+        - str: 直接返回
+        - List[ContentBlock]: 提取所有 text 类型的文本
+        """
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                    elif block.get("type") == "image_url":
+                        parts.append("[图片]")
+                elif isinstance(block, str):
+                    parts.append(block)
+            return " ".join(parts) if parts else ""
+        return str(content) if content else ""
 
     def _update_memory_from_tool_result(
         self, tool_name: str, result: str, args: Dict
@@ -234,12 +288,25 @@ class SupervisorAgent:
             else:
                 data = result
         except (json.JSONDecodeError, TypeError):
-            return
+            data = {}
 
         if tool_name == "get_weather" and isinstance(data, dict):
             if data.get("temperature"):
                 self.memory.target_temperature = float(data["temperature"])
                 self.memory.missing_fields = [f for f in self.memory.missing_fields if f != "temperature"]
+
+        elif tool_name == "remember_context":
+            # 从 args 中提取（工具调用时直接传入的参数）
+            if args.get("city"):
+                self.memory.target_city = args["city"]
+                self.memory.missing_fields = [f for f in self.memory.missing_fields if f != "city"]
+            if args.get("scene"):
+                self.memory.target_scene = args["scene"]
+                self.memory.missing_fields = [f for f in self.memory.missing_fields if f != "scene"]
+            if args.get("date"):
+                self.memory.target_date = args["date"]
+            if args.get("temperature"):
+                self.memory.target_temperature = args["temperature"]
 
         elif tool_name == "plan_outfit" and isinstance(data, dict):
             # 穿搭方案已生成，清空 missing_fields

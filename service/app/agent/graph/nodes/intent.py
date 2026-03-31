@@ -1,8 +1,17 @@
-"""意图识别节点"""
+"""意图识别节点
+
+支持 v2.0 完整意图类型：
+- generate_outfit: 穿搭推荐
+- query_wardrobe: 衣柜查询
+- give_feedback: 反馈调整
+- wardrobe_check: 衣橱健康检查
+- style_match: 参考图风格复刻
+- care_guide: 衣物护理
+"""
 import logging
 from typing import Dict, Any
 from langchain_core.messages import HumanMessage, SystemMessage
-from app.agent.graph.state import GraphState, Intent
+from app.agent.graph.state_v2 import GraphState, Intent
 from app.services.llm_providers import get_cached_provider
 
 logger = logging.getLogger(__name__)
@@ -21,8 +30,11 @@ INTENT_SYSTEM_PROMPT = """你是一个穿搭助手，需要理解用户的穿衣
 1. intent: 意图类型（只能选一个）
    - generate_outfit: 用户想要获得穿搭推荐
    - query_wardrobe: 用户想查询衣柜里的衣物或统计
-   - get_advice: 用户想获取搭配建议
+   - wardrobe_check: 用户想检查衣橱健康状况
+   - style_match: 用户上传了参考图，想要复刻风格
+   - care_guide: 用户询问衣物护理问题
    - give_feedback: 用户对已有穿搭提反馈（如"太正式了"、"换个颜色"）
+   - get_advice: 用户想获取搭配建议
    - unknown: 无法判断
 
 2. entities: 实体信息（尽可能提取，即使 intent 是 unknown）
@@ -54,6 +66,9 @@ INTENT_SYSTEM_PROMPT = """你是一个穿搭助手，需要理解用户的穿衣
 - "明天去杭州出差穿什么" → date=明天, city=杭州, scene=work
 - "我想要休闲一点的风格" → intent=generate_outfit, style=casual
 - "约会穿什么好" → intent=generate_outfit, scene=date
+- "衣橱健康" → intent=wardrobe_check
+- "这张图片的穿搭风格" → intent=style_match
+- "羊绒大衣怎么洗" → intent=care_guide
 - "你那叫什么" → intent=unknown（穿搭助手闲聊）
 - "你好呀" → intent=unknown（礼貌回复即可）
 
@@ -80,13 +95,34 @@ def create_intent_prompt(message: str, context: Dict[str, Any] = None) -> str:
     return f"{INTENT_SYSTEM_PROMPT}\n\n用户输入：{message}{context_info}"
 
 
-def parse_intent_response(response: str) -> Dict[str, Any]:
+def _extract_text_from_content(content: Any) -> str:
+    """从 LangChain AIMessage.content 提取纯文本"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                elif block.get("type") == "image_url":
+                    parts.append("[图片]")
+            elif isinstance(block, str):
+                parts.append(block)
+        return " ".join(parts) if parts else ""
+    return str(content) if content else ""
+
+
+def parse_intent_response(response: Any) -> Dict[str, Any]:
     """解析 LLM 返回的意图识别结果"""
     import json
     import re
 
+    # 处理 LangChain content block 格式
+    response_str = _extract_text_from_content(response)
+
     # 提取 JSON
-    json_match = re.search(r'\{.*\}', response, re.DOTALL)
+    json_match = re.search(r'\{.*\}', response_str, re.DOTALL)
     if not json_match:
         return {"intent": Intent.UNKNOWN, "entities": {}, "confidence": 0.0}
 
@@ -100,7 +136,13 @@ def parse_intent_response(response: str) -> Dict[str, Any]:
     try:
         intent = Intent(intent_str)
     except ValueError:
-        intent = Intent.UNKNOWN
+        # 兼容新增的意图类型
+        intent_mapping = {
+            "wardrobe_check": Intent.WARDROBE_CHECK,
+            "style_match": Intent.STYLE_MATCH,
+            "care_guide": Intent.CARE_GUIDE,
+        }
+        intent = intent_mapping.get(intent_str, Intent.UNKNOWN)
 
     # 解析 entities
     entities = data.get("entities", {})
@@ -116,7 +158,8 @@ def parse_intent_response(response: str) -> Dict[str, Any]:
         "运动": "sport", "健身": "sport",
         "约会": "date", "出行": "date",
         "派对": "party", "聚会": "party", "晚宴": "party",
-        "正式": "formal"
+        "正式": "formal",
+        "旅游": "casual", "游玩": "casual", "旅行": "casual",
     }
     if "scene" in entities and entities["scene"]:
         scene = entities["scene"]
@@ -195,7 +238,9 @@ async def intent_node(state: GraphState) -> GraphState:
         response = await chat_model.ainvoke([
             HumanMessage(content=prompt)
         ])
-        logger.info(f"[LLM] intent识别完成 | response_len={len(response.content)} | response={response.content[:100]}")
+        # 处理 LangChain content block 格式
+        response_str = _extract_text_from_content(response.content)
+        logger.info(f"[LLM] intent识别完成 | response_len={len(response_str)} | response={response_str[:100]}")
 
         result = parse_intent_response(response.content)
 

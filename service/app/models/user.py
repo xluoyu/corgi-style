@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -26,10 +26,13 @@ class UserProfile(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    nickname = Column(String(50), default="时尚路人甲")
+    avatar_url = Column(String(500), nullable=True)
     gender = Column(String(20), nullable=True)
-    style_preferences = Column(String, nullable=True)
-    season_preference = Column(String, nullable=True)
+    style_preferences = Column(JSON, nullable=True)
     default_occasion = Column(String(50), default="casual")
+    height = Column(Integer, nullable=True)
+    weight = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

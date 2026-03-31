@@ -73,13 +73,17 @@ async def remember_context(
 
     Args:
         city: 城市名称
-        scene: 场合类型（如 daily/work/sport/date/party/casual/formal）
+        scene: 场合类型（如 daily/work/sport/date/party/casual/formal），默认为 "daily"
         date: 日期（YYYY-MM-DD 或"今天"/"明天"等）
         temperature: 温度（℃），如果已知可传入
         style: 风格偏好（如 休闲/正式/运动等）
         colors: 常用颜色，逗号分隔（如"黑色,白色"）
     """
     try:
+        # 如果 scene 为空，默认设置为 "daily"
+        if scene is None:
+            scene = "daily"
+
         # 从 ContextVar 获取当前 memory（由调用方传入，这里仅做验证）
         colors_list = [c.strip() for c in colors.split(",")] if colors else None
         return json.dumps({

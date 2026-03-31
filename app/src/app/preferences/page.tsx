@@ -37,14 +37,6 @@ const SCENE_OPTIONS = [
   { id: "formal", label: "正式场合", icon: "🎩", color: "bg-slate-50 border-slate-200 text-slate-700" },
 ];
 
-// 季节选项
-const SEASON_OPTIONS = [
-  { id: "spring", label: "春", icon: "🌸", color: "bg-pink-50 border-pink-200 text-pink-700" },
-  { id: "summer", label: "夏", icon: "☀️", color: "bg-yellow-50 border-yellow-200 text-yellow-700" },
-  { id: "autumn", label: "秋", icon: "🍂", color: "bg-orange-50 border-orange-200 text-orange-700" },
-  { id: "winter", label: "冬", icon: "❄️", color: "bg-blue-50 border-blue-200 text-blue-700" },
-];
-
 /**
  * 标签选择组件
  */
@@ -139,7 +131,7 @@ function Notification({
 
 /**
  * PreferencesPage - 偏好设置页面组件
- * 用户可以设置风格、场景和季节偏好
+ * 用户可以设置风格和场景偏好
  */
 export default function PreferencesPage() {
   const router = useRouter();
@@ -151,7 +143,6 @@ export default function PreferencesPage() {
 
   // 用户偏好状态
   const [stylePreferences, setStylePreferences] = useState<string[]>([]);
-  const [seasonPreferences, setSeasonPreferences] = useState<string[]>([]);
   const [defaultOccasion, setDefaultOccasion] = useState<string>("");
 
   // 加载用户偏好
@@ -164,7 +155,6 @@ export default function PreferencesPage() {
       setLoading(true);
       const preference = await getUserPreference();
       setStylePreferences(preference.style_preferences || []);
-      setSeasonPreferences(preference.season_preference || []);
       setDefaultOccasion(preference.default_occasion || "");
     } catch (error) {
       console.error("加载用户偏好失败:", error);
@@ -177,9 +167,7 @@ export default function PreferencesPage() {
     try {
       setLoading(true);
       await updateUserInfo({
-        user_id: "",
         style_preferences: stylePreferences,
-        season_preference: seasonPreferences,
         default_occasion: defaultOccasion,
       });
       setNotification({
@@ -204,7 +192,6 @@ export default function PreferencesPage() {
 
   const isFormValid =
     stylePreferences.length > 0 &&
-    seasonPreferences.length > 0 &&
     defaultOccasion.length > 0;
 
   return (
@@ -303,27 +290,6 @@ export default function PreferencesPage() {
                 selected={defaultOccasion ? [defaultOccasion] : []}
                 onChange={(selected) => setDefaultOccasion(selected[0] || "")}
                 multiSelect={false}
-              />
-            </motion.div>
-
-            {/* 季节偏好 */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100 mb-4"
-            >
-              <div className="flex items-center gap-2 mb-4">
-                <Sun size={18} className="text-[#FE8F39]" />
-                <h3 className="text-sm font-bold text-slate-800">季节偏好</h3>
-              </div>
-              <p className="text-xs text-slate-400 mb-3">
-                选择您经常穿搭的季节（可多选）
-              </p>
-              <TagSelector
-                options={SEASON_OPTIONS}
-                selected={seasonPreferences}
-                onChange={setSeasonPreferences}
               />
             </motion.div>
 

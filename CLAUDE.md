@@ -53,20 +53,33 @@ service/
 
 基于 LangGraph 的多 Agent 协同系统，负责穿搭推荐逻辑：
 
-- **Supervisor** (`agent/supervisor.py`) - 主控 Agent，协调整个推荐流程
-  - 调用 PlanAgent 生成穿搭方案
-  - 使用 RetrievalTool 检索衣物
-  - 使用 ShortCircuitTool 进行快速匹配判断
-  - 调用 CombineAgent 组合最终穿搭
-  - 保存穿搭记录到数据库
+#### 核心 AI Agent 系统
 
-- **PlanAgent** (`agent/plan_agent.py`) - 规划 Agent，根据用户画像、天气、场景生成穿搭方案
+基于 LangGraph 的多 Agent 协同系统：
 
-- **ClothesAgent** (`agent/clothes_agent.py`) - 衣物匹配 Agent，负责衣物检索和匹配
+- **SupervisorAgent** (`agent/agents/supervisor.py`) - 任务协调者
+  - 负责意图识别和路由决策
+  - 不直接回答，而是分发到对应 Agent
+  - 汇总结果生成回复
 
-- **CombineAgent** (`agent/combine_agent.py`) - 组合 Agent，当没有完美匹配时智能组合衣物
+- **WeatherAgent** - 查询天气数据
+- **WardrobeAgent** - 管理衣柜（查询/添加衣物）
+- **OutfitAdvisorAgent** - 生成穿搭方案
+- **KnowledgeAgent** - 知识问答
 
-- **Tools** (`agent/tools.py`) - Agent 工具集，包括衣物检索工具
+**多 Agent 工作流** (`agent/graph/workflow_v3.py`)：
+```
+supervisor → weather_agent/wardrobe_agent/outfit_advisor_agent/knowledge_agent
+                ↓
+              response
+```
+
+Agent 之间通过 **GraphState 共享数据**，而非 Tool Call。
+
+**旧版 Agent 系统** (`agent/agent/` 目录)：
+- Supervisor (单 Agent + Function Calling)
+- PlanAgent、ClothesAgent、CombineAgent
+- 仍保留用于兼容，现有 `/chat/message/stream` 端点使用旧架构
 
 #### 后端服务层 (services/)
 
@@ -130,6 +143,13 @@ app/
 - `GET /history/{id}` - 获取穿搭历史详情
 - `POST /history/save` - 保存穿搭快照
 - `GET /history/stats/summary` - 获取穿搭统计摘要
+
+### Chat 对话 API
+
+- `POST /chat/message/stream` - 流式对话（SSE，基于旧版单 Agent 架构）
+- `POST /chat/message` - 非流式对话（基于旧版单 Agent 架构）
+- `POST /chat/message/v2` - 非流式对话（基于 LangGraph v2 工作流）
+- `POST /chat/message/v3` - 非流式对话（**新版多 Agent 架构**）
 
 API 文档: http://localhost:8000/docs (FastAPI 自动生成)
 

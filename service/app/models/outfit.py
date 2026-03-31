@@ -14,7 +14,7 @@ class OutfitRecord(Base):
     outfit_name = Column(String(100), nullable=True)
     outfit_snapshot = Column(Text, nullable=True)
     weather_snapshot = Column(Text, nullable=True)
-    create_time = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=datetime.now)
 
     user = relationship("User", back_populates="outfits")
 
@@ -26,7 +26,7 @@ class OutfitFeedback(Base):
     outfit_id = Column(UUID(as_uuid=True), ForeignKey("outfit_histories.id"), nullable=False, index=True)
     rating = Column(Integer, nullable=False)
     feedback_text = Column(Text, nullable=True)
-    create_time = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=datetime.now)
 
     user = relationship("User", back_populates="feedback")
     outfit = relationship("OutfitRecord")

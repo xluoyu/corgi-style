@@ -72,11 +72,24 @@ async def plan_outfit(scene: str, temperature: float, wardrobe_items: List[dict]
             HumanMessage(content=prompt)
         ])
 
+        # 提取文本内容（处理 LangChain 内容块格式）
+        content_text = response.content
+        if isinstance(content_text, list):
+            parts = []
+            for block in content_text:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                elif isinstance(block, dict) and block.get("type") == "image_url":
+                    parts.append("[图片]")
+                elif isinstance(block, str):
+                    parts.append(block)
+            content_text = " ".join(parts) if parts else str(content_text)
+
         # 解析 JSON（支持嵌入在文本中的 JSON）
-        json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
+        json_match = re.search(r'\{.*\}', content_text, re.DOTALL)
         if json_match:
             return json_match.group()
-        return json.dumps({"description": response.content})
+        return json.dumps({"description": content_text})
     except Exception as e:
         return json.dumps({"error": type(e).__name__, "message": str(e)}, ensure_ascii=False)
 

@@ -35,7 +35,9 @@
       "Bash(grep -v \"^Traceback\\\\|^  File\\\\|^TypeError\\\\|^    yield\\\\|^During\\\\|^$\")",
       "WebSearch",
       "Bash(cd:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(psql -U postgres -d outfit_agent -f schema.sql)",
+      "Bash(pip show:*)"
     ]
   }
 }

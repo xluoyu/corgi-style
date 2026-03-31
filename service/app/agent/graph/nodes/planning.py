@@ -8,6 +8,24 @@ from app.services.llm_providers import get_cached_provider
 logger = logging.getLogger(__name__)
 
 
+def _extract_text_from_content(content: Any) -> str:
+    """从 LangChain AIMessage.content 提取纯文本"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                elif block.get("type") == "image_url":
+                    parts.append("[图片]")
+            elif isinstance(block, str):
+                parts.append(block)
+        return " ".join(parts) if parts else ""
+    return str(content) if content else ""
+
+
 PLANNING_SYSTEM_PROMPT = """你是一个专业穿搭顾问，基于用户衣柜中的衣物生成穿搭方案。
 
 你有两部分信息：
@@ -170,19 +188,21 @@ async def outfit_planning_node(state: GraphState) -> GraphState:
             HumanMessage(content=PLANNING_SYSTEM_PROMPT),
             HumanMessage(content=prompt)
         ])
-        logger.info(f"[LLM] outfit_planning完成 | response_len={len(response.content)}")
+        # 处理 LangChain content block 格式
+        response_str = _extract_text_from_content(response.content)
+        logger.info(f"[LLM] outfit_planning完成 | response_len={len(response_str)}")
 
         import json
         import re
 
         # 提取 JSON
-        json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
+        json_match = re.search(r'\{.*\}', response_str, re.DOTALL)
         if json_match:
             try:
                 plan = json.loads(json_match.group())
             except json.JSONDecodeError:
                 plan = None
-                logger.warning(f"[LLM] outfit_planning JSON解析失败 | content={response.content[:200]}")
+                logger.warning(f"[LLM] outfit_planning JSON解析失败 | content={response_str[:200]}")
 
             # 安全检查：确保 items 是 dict，避免 LLM 返回错误格式导致后续崩溃
             if plan and not isinstance(plan.get("items"), dict):

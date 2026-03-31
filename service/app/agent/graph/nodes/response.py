@@ -1,10 +1,16 @@
-"""响应生成节点"""
+"""响应生成节点
+
+支持 v2.0 GraphState：
+- outfit_evaluation: OutfitEvaluation 结构
+- advisor_iteration_count: 迭代次数
+- reasoning: 推理过程文本
+"""
 import logging
 import random
 import re
 import json
 from typing import Dict, Any, List, Optional
-from app.agent.graph.state import GraphState
+from app.agent.graph.state_v2 import GraphState
 from app.services.llm_providers import get_cached_provider
 
 logger = logging.getLogger(__name__)
@@ -13,11 +19,11 @@ logger = logging.getLogger(__name__)
 # 品类 emoji 映射
 _SLOT_EMOJI = {
     "top": "👕", "pants": "👖", "outer": "🧥",
-    "inner": "🩻", "accessory": "🎒"
+    "inner": "👙", "accessory": "🎒", "shoes": "👟"
 }
 _SLOT_NAMES = {
     "top": "上衣", "pants": "裤子", "outer": "外套",
-    "inner": "内搭", "accessory": "配饰"
+    "inner": "内搭", "accessory": "配饰", "shoes": "鞋子"
 }
 
 # =============================================================================
@@ -57,7 +63,9 @@ async def _llm_extract_entities(message: str) -> Dict[str, Optional[str]]:
             HumanMessage(content=ENTITY_EXTRACTION_PROMPT + f"\n\n用户输入：{message}")
         ])
 
-        json_match = re.search(r'\{.*\}', response.content, re.DOTALL)
+        # 处理 LangChain content block 格式
+        content_str = _llm_extract_text(response.content)
+        json_match = re.search(r'\{.*\}', content_str, re.DOTALL)
         if json_match:
             result = json.loads(json_match.group())
             return {
@@ -67,6 +75,24 @@ async def _llm_extract_entities(message: str) -> Dict[str, Optional[str]]:
     except Exception:
         pass
     return {"city": None, "scene": None}
+
+
+def _llm_extract_text(content: Any) -> str:
+    """从 LangChain AIMessage.content 提取纯文本"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                elif block.get("type") == "image_url":
+                    parts.append("[图片]")
+            elif isinstance(block, str):
+                parts.append(block)
+        return " ".join(parts) if parts else ""
+    return str(content) if content else ""
 
 
 def _build_missing_question(state: GraphState, intent_str: str) -> Optional[tuple[str, Dict]]:
@@ -148,6 +174,12 @@ async def response_node(state: GraphState) -> GraphState:
         response_content, data = _handle_feedback(state)
     elif intent_str == "get_advice":
         response_content, data = _handle_get_advice(state)
+    elif intent_str == "wardrobe_check":
+        response_content, data = _handle_wardrobe_health(state)
+    elif intent_str == "care_guide":
+        response_content, data = _handle_care_guide(state)
+    elif intent_str == "style_match":
+        response_content, data = _handle_style_match(state)
     else:
         response_content, data = await _handle_unknown(state)
 
@@ -198,7 +230,8 @@ def _handle_generate_outfit(state: GraphState) -> tuple[str, Dict[str, Any]]:
     selected_clothes = state.get("selected_clothes", {})
     missing_categories = state.get("missing_categories", [])
     match_score = state.get("match_score", 0)
-    evaluation = state.get("context", {}).get("evaluation", {})
+    # v2.0: outfit_evaluation 在 state 顶层
+    evaluation = state.get("outfit_evaluation", {}) or state.get("context", {}).get("evaluation", {})
 
     # 无方案
     if not outfit_plan:
@@ -286,6 +319,48 @@ def _handle_generate_outfit(state: GraphState) -> tuple[str, Dict[str, Any]]:
         lines.append("")
         lines.append(f"❄️ {evaluation['temperature_warning']}")
 
+    # === v2.0 穿搭评价（OutfitEvaluation）===
+    if evaluation and isinstance(evaluation, dict) and evaluation.get("overall_score"):
+        lines.append("")
+        lines.append("📊 方案评分")
+        scores = []
+        if evaluation.get("color_score"):
+            scores.append(f"色彩 {evaluation['color_score']}")
+        if evaluation.get("style_score"):
+            scores.append(f"风格 {evaluation['style_score']}")
+        if evaluation.get("scene_score"):
+            scores.append(f"场合 {evaluation['scene_score']}")
+        if evaluation.get("layering_score"):
+            scores.append(f"层次 {evaluation['layering_score']}")
+        if scores:
+            lines.append("、".join(scores) + f"，综合 {evaluation['overall_score']} 分")
+
+        # pros
+        pros = evaluation.get("pros", [])
+        if pros and isinstance(pros, list):
+            lines.append("✅ " + "；".join(pros[:2]))
+
+        # cons
+        cons = evaluation.get("cons", [])
+        if cons and isinstance(cons, list):
+            lines.append("⚠️ " + "；".join(cons[:2]))
+
+        # suggestions
+        suggestions = evaluation.get("suggestions", [])
+        if suggestions and isinstance(suggestions, list):
+            lines.append("💡 " + "；".join(suggestions[:2]))
+
+    # === v2.0 推理过程（reasoning）===
+    response_data = state.get("response_data")
+    reasoning = None
+    if response_data:
+        reasoning = response_data.get("reasoning")
+    if not reasoning and response_data and response_data.get("evaluation", {}).get("reasoning"):
+        reasoning = response_data["evaluation"]["reasoning"]
+    if reasoning:
+        lines.append("")
+        lines.append(f"🤔 {reasoning}")
+
     response = "\n".join(lines)
 
     data = {
@@ -297,6 +372,8 @@ def _handle_generate_outfit(state: GraphState) -> tuple[str, Dict[str, Any]]:
         "missing_advice": missing_advice,
         "match_score": match_score,
         "has_clothes": has_clothes,  # 供前端判断是否显示 OutfitCard
+        # v2.0 评价结构
+        "evaluation": evaluation if evaluation else None,
     }
 
     return response, data
@@ -352,6 +429,96 @@ def _handle_get_advice(state: GraphState) -> tuple[str, Dict[str, Any]]:
         response = "为您整理了以下搭配建议..."
 
     return response, {"type": "advice", "success": True, "plan": outfit_plan}
+
+
+def _handle_wardrobe_health(state: GraphState) -> tuple[str, Dict[str, Any]]:
+    """处理衣橱健康检查响应"""
+    health_score = state.get("curator_health_score")
+    unused_items = state.get("curator_unused_items", [])
+
+    if health_score is None:
+        return "正在为您检查衣橱健康状况...", {"type": "wardrobe_health", "status": "pending"}
+
+    # 健康度描述
+    if health_score >= 80:
+        health_desc = "您的衣橱很健康！"
+    elif health_score >= 60:
+        health_desc = "您的衣橱基本健康，有一些小问题需要注意。"
+    elif health_score >= 40:
+        health_desc = "您的衣橱有些失衡，建议关注一下。"
+    else:
+        health_desc = "您的衣橱需要整理了。"
+
+    lines = [f"🏠 衣橱健康度：{health_score}分", health_desc]
+
+    # 长期未穿衣物提醒
+    if unused_items and len(unused_items) > 0:
+        lines.append("")
+        lines.append("📋 长期未穿的衣物：")
+        for item in unused_items[:5]:
+            name = item.get("name", item.get("description", "未知衣物"))
+            days = item.get("days_since_worn", 0)
+            lines.append(f"• {name}（{days}天未穿）")
+
+    response = "\n".join(lines)
+    return response, {
+        "type": "wardrobe_health",
+        "health_score": health_score,
+        "unused_items": unused_items
+    }
+
+
+def _handle_care_guide(state: GraphState) -> tuple[str, Dict[str, Any]]:
+    """处理衣物护理指南响应"""
+    user_message = state.get("messages", [{}])[-1].get("content", "") if state.get("messages") else ""
+
+    # 简单的护理指南响应
+    care_keywords = {
+        "羊绒": "羊绒大衣建议干洗，或用专用的羊绒洗涤剂手洗，平铺晾干。",
+        "羽绒服": "羽绒服建议手洗，使用中性洗涤剂，避免暴晒，轻轻拍打恢复蓬松。",
+        "羊毛": "羊毛衣物建议干洗，或用羊毛专用洗涤剂手洗，避免绞拧，平铺晾干。",
+        "棉": "棉质衣物可以机洗，但深色棉质建议翻面洗，避免褪色。",
+        "牛仔": "牛仔裤建议翻面机洗，避免褪色，不要频繁洗涤。",
+        "丝绸": "丝绸衣物建议干洗，或用专用洗涤剂手洗，阴凉处晾干。",
+        "皮": "皮革衣物建议用专用皮革清洁剂擦拭，避免沾水，放在通风处晾干。",
+        "大衣": "大衣建议干洗，日常存放使用衣架保持形状，放入防虫剂。",
+    }
+
+    care_advice = "衣物护理建议：查看衣物标签上的洗涤说明，遵循专业建议能延长衣物寿命。"
+    for keyword, advice in care_keywords.items():
+        if keyword in user_message:
+            care_advice = advice
+            break
+
+    return care_advice, {"type": "care_guide"}
+
+
+def _handle_style_match(state: GraphState) -> tuple[str, Dict[str, Any]]:
+    """处理参考图风格复刻响应"""
+    style_result = state.get("style_analysis_result", {})
+    matched_items = state.get("matched_items", [])
+
+    if not style_result:
+        return "正在分析您上传的图片风格...", {"type": "style_match", "status": "pending"}
+
+    description = style_result.get("description", "这是一套时尚穿搭。")
+    score = style_result.get("replication_score", 0)
+
+    lines = [f"🎨 风格分析：{description}", f"复刻匹配度：{score}分"]
+
+    if matched_items and len(matched_items) > 0:
+        lines.append("")
+        lines.append("👕 衣柜中可搭配的单品：")
+        for item in matched_items[:3]:
+            name = item.get("name", item.get("description", "衣物"))
+            lines.append(f"• {name}")
+
+    response = "\n".join(lines)
+    return response, {
+        "type": "style_match",
+        "style_result": style_result,
+        "matched_items": matched_items
+    }
 
 
 def _is_greeting(message: str) -> bool:
