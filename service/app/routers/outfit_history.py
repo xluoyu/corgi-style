@@ -176,24 +176,37 @@ def get_outfit_history_detail(
 
 
 @router.post("/save", response_model=SaveOutfitSnapshotResponse)
-def save_outfit_snapshot(
+async def save_outfit_snapshot(
     request: SaveOutfitSnapshotRequest,
     db: Session = Depends(get_db)
 ):
-    from app.agent.supervisor import Supervisor
+    from app.services.outfit import OutfitService, OutfitContext
 
     try:
-        supervisor = Supervisor(db)
-        result = supervisor.generate_outfit(
+        service = OutfitService(db)
+        context = OutfitContext(
             user_id=request.user_id,
-            temperature=request.weather_temp or 20,
-            city=request.weather_city or "未知",
-            scene=request.occasion
+            occasion=request.occasion,
+            location=request.weather_city,
+            temperature=request.weather_temp
         )
+
+        result = await service.generate_outfit(context)
+
+        # 保存到数据库
+        record = OutfitRecord(
+            user_id=request.user_id,
+            occasion=request.occasion,
+            outfit_name=result.description[:100] if result.description else f"{request.occasion}穿搭",
+            outfit_snapshot=result.description,
+            weather_snapshot=str(result.weather) if result.weather else None
+        )
+        db.add(record)
+        db.commit()
 
         return SaveOutfitSnapshotResponse(
             message="穿搭快照保存成功",
-            history_id=result.get("outfit_id", "")
+            history_id=str(record.id)
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"保存失败: {str(e)}")

@@ -1,14 +1,37 @@
-from app.agent.plan_agent import PlanAgent
-from app.agent.combine_agent import CombineAgent
-from app.agent.supervisor import SupervisorAgent, Supervisor  # SupervisorAgent 新版, Supervisor 旧版兼容
-from app.agent.tools import RetrievalTool
-from app.agent.short_circuit import ShortCircuitTool
+"""Agent 模块
+
+架构：
+- agent/core.py: Agent 构建器
+- agent/memory.py: 短期记忆（Redis/Upstash）
+- agent/prompts/: Prompt 模板
+- agent/tools/: LangChain Tools（调用 services 层）
+"""
+
+from app.agent.core import ConversationAgent, chat_message, get_agent
+from app.agent.memory import (
+    ConversationMemory,
+    SessionData,
+    ConversationContext,
+    Message,
+    get_session_memory,
+    update_session_memory,
+    clear_session_memory,
+)
+from app.agent.tools import get_all_tools
 
 __all__ = [
-    "PlanAgent",
-    "CombineAgent",
-    "SupervisorAgent",
-    "Supervisor",
-    "RetrievalTool",
-    "ShortCircuitTool"
+    # core
+    "ConversationAgent",
+    "chat_message",
+    "get_agent",
+    # memory
+    "ConversationMemory",
+    "SessionData",
+    "ConversationContext",
+    "Message",
+    "get_session_memory",
+    "update_session_memory",
+    "clear_session_memory",
+    # tools
+    "get_all_tools",
 ]

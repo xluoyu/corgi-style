@@ -1,54 +1,63 @@
 """天气服务"""
 import httpx
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from datetime import datetime, timedelta
+from dataclasses import dataclass
+
+
+@dataclass
+class WeatherInfo:
+    """天气信息数据结构"""
+    city: str
+    date: str
+    temperature: float
+    weather: str  # 天气状况：晴/多云/小雨等
+    humidity: int  # 湿度百分比
+    wind: str  # 风力风向
+    uv_index: Optional[int] = None  # 紫外线指数
+    source: str = "unknown"
 
 
 class WeatherService:
     """天气获取服务（支持高德天气 API）"""
 
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or ""
+        import os
+        self.api_key = api_key or os.getenv("GAODE_API_KEY") or os.getenv("WEATHER_API_KEY", "")
         self.base_url = "https://restapi.amap.com/v3/weather"
 
-    async def get_weather(self, city: str, date: Optional[str] = None) -> Dict[str, Any]:
+    async def get_weather(
+        self,
+        city: str,
+        date: Optional[str] = None
+    ) -> WeatherInfo:
         """
         获取天气信息
 
         Args:
-            city: 城市名称或编码
-            date: 日期，None 表示今天，"后天" 等相对日期会自动转换
+            city: 城市名称
+            date: 日期，None 表示今天，"明天"/"后天" 等相对日期自动转换
 
         Returns:
-            {
-                "city": "北京",
-                "date": "2026-03-25",
-                "temperature": 12.0,
-                "weather": "多云",
-                "humidity": 45,
-                "wind": "北风3级"
-            }
+            WeatherInfo 对象
         """
         if date and date != "今天":
-            # 处理相对日期
             target_date = self._parse_relative_date(date)
         else:
             target_date = datetime.now().strftime("%Y-%m-%d")
 
-        # 如果查询的是今天或未来3天内，使用高德天气API
         try:
             weather_data = await self._fetch_gaode_weather(city)
-            return {
-                "city": city,
-                "date": target_date,
-                "temperature": weather_data.get("temperature", 20.0),
-                "weather": weather_data.get("weather", "晴"),
-                "humidity": weather_data.get("humidity", 50),
-                "wind": weather_data.get("wind", ""),
-                "source": "gaode"
-            }
+            return WeatherInfo(
+                city=city,
+                date=target_date,
+                temperature=float(weather_data.get("temperature", 20)),
+                weather=weather_data.get("weather", "晴"),
+                humidity=int(weather_data.get("humidity", 50)),
+                wind=weather_data.get("wind", ""),
+                source="gaode"
+            )
         except Exception:
-            # Fallback 到模拟数据（实际生产环境应记录日志）
             return self._get_mock_weather(city, target_date)
 
     async def _fetch_gaode_weather(self, city: str) -> Dict[str, Any]:
@@ -56,7 +65,7 @@ class WeatherService:
         if not self.api_key:
             raise ValueError("高德天气 API Key 未配置")
 
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(
                 self.base_url,
                 params={
@@ -93,26 +102,47 @@ class WeatherService:
         elif date_str == "昨天":
             return (today - timedelta(days=1)).strftime("%Y-%m-%d")
         else:
-            # 尝试直接解析
             try:
                 datetime.strptime(date_str, "%Y-%m-%d")
                 return date_str
             except ValueError:
-                # 无法识别，返回今天
                 return today.strftime("%Y-%m-%d")
 
-    def _get_mock_weather(self, city: str, date: str) -> Dict[str, Any]:
+    def _get_mock_weather(self, city: str, date: str) -> WeatherInfo:
         """返回模拟天气数据（用于测试）"""
-        return {
-            "city": city,
-            "date": date,
-            "temperature": 18.0,
-            "weather": "晴",
-            "humidity": 50,
-            "wind": "东南风2级",
-            "source": "mock"
-        }
+        return WeatherInfo(
+            city=city,
+            date=date,
+            temperature=18.0,
+            weather="晴",
+            humidity=50,
+            wind="东南风2级",
+            source="mock"
+        )
+
+    def get_temperature_range(self, temperature: float) -> Literal["summer", "spring_autumn", "winter", "all_season"]:
+        """根据温度判断季节范围"""
+        if temperature >= 25:
+            return "summer"
+        elif temperature >= 10:
+            return "spring_autumn"
+        else:
+            return "winter"
 
 
 # 全局天气服务实例
 weather_service = WeatherService()
+
+
+async def get_weather(city: str, date: Optional[str] = None) -> WeatherInfo:
+    """
+    获取天气信息（便捷函数）
+
+    Args:
+        city: 城市名称
+        date: 日期，None 表示今天
+
+    Returns:
+        WeatherInfo 对象
+    """
+    return await weather_service.get_weather(city, date)
