@@ -1,125 +1,30 @@
 """Agent Tools — 按业务分组的 LangChain 工具集。
 
-注意：旧的 agent/tools.py 已迁移至此，RetrievalTool 等仍可通过：
-  from app.agent.tools import RetrievalTool
-访问。
+新版工具调用 services 层，复用业务逻辑。
 """
-from typing import List, Dict, Optional
+from typing import List
 
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
-
-from app.models import UserClothes, ClothesCategory, TemperatureRange
-from app.agent.tools.context import (
-    get_db_for_tools,
-    get_current_user_id,
-    set_tool_context,
-)
-from app.agent.tools.shared import (
-    get_weather,
-    analyze_clothing_image,
-    remember_context,
-    recall_context,
-    SHARED_TOOLS,
-)
+# 新版工具（调用 services 层）
+from app.agent.tools.weather import create_weather_tools
+from app.agent.tools.wardrobe import create_wardrobe_tools
+from app.agent.tools.image import create_image_tools
+from app.agent.tools.style import create_style_tools
 
 
-# ============================================================
-# 旧版 RetrievalTool（兼容现有 supervisor.py 等）
-# ============================================================
-
-class RetrievalTool:
-    """衣物检索工具。兼容旧版 agent/tools.py。"""
-
-    def __init__(self, db: Session):
-        self.db = db
-
-    def retrieve_by_conditions(
-        self,
-        user_id: str,
-        category: Optional[str] = None,
-        color: Optional[str] = None,
-        temperature: Optional[float] = None,
-        temperature_range: Optional[str] = None
-    ) -> List[UserClothes]:
-        query = self.db.query(UserClothes).filter(UserClothes.user_id == user_id)
-
-        if category:
-            query = query.filter(UserClothes.category == category)
-
-        if color:
-            query = query.filter(
-                UserClothes.color.contains(color) | UserClothes.description.contains(color)
-            )
-
-        if temperature is not None:
-            if temperature >= 25:
-                temp_ranges = [TemperatureRange.summer, TemperatureRange.all_season]
-            elif temperature >= 10:
-                temp_ranges = [TemperatureRange.spring_autumn, TemperatureRange.all_season]
-            else:
-                temp_ranges = [TemperatureRange.winter, TemperatureRange.all_season]
-            query = query.filter(UserClothes.temperature_range.in_(temp_ranges))
-
-        return query.all()
-
-    def retrieve_by_scheme(self, user_id: str, scheme: Dict, temperature: float) -> Dict[str, Optional[UserClothes]]:
-        result = {}
-        temp_ranges = self._get_temp_ranges(temperature)
-        items = scheme.get("items", {})
-
-        if not isinstance(items, dict):
-            return result
-
-        for item_name, item_info in items.items():
-            category = item_info.get("category")
-            color = item_info.get("color")
-
-            clothes_list = self.db.query(UserClothes).filter(
-                and_(
-                    UserClothes.user_id == user_id,
-                    UserClothes.category == category,
-                    UserClothes.temperature_range.in_(temp_ranges)
-                )
-            ).all()
-
-            matched = None
-            if color:
-                for clothes in clothes_list:
-                    if color in clothes.color or (clothes.description and color in clothes.description):
-                        matched = clothes
-                        break
-
-            if not matched and clothes_list:
-                matched = clothes_list[0]
-
-            result[item_name] = matched
-
-        return result
-
-    def _get_temp_ranges(self, temperature: float) -> List[str]:
-        if temperature >= 25:
-            return [TemperatureRange.summer.value, TemperatureRange.all_season.value]
-        elif temperature >= 10:
-            return [TemperatureRange.spring_autumn.value, TemperatureRange.all_season.value]
-        else:
-            return [TemperatureRange.winter.value, TemperatureRange.all_season.value]
-
-    def get_user_clothes(self, user_id: str) -> List[UserClothes]:
-        return self.db.query(UserClothes).filter(UserClothes.user_id == user_id).all()
+def get_all_tools() -> List:
+    """获取所有 Agent Tools"""
+    tools = []
+    tools.extend(create_weather_tools())
+    tools.extend(create_wardrobe_tools())
+    tools.extend(create_image_tools())
+    tools.extend(create_style_tools())
+    return tools
 
 
 __all__ = [
-    # context
-    "get_db_for_tools",
-    "get_current_user_id",
-    "set_tool_context",
-    # shared tools
-    "get_weather",
-    "analyze_clothing_image",
-    "remember_context",
-    "recall_context",
-    "SHARED_TOOLS",
-    # old RetrievalTool (compat)
-    "RetrievalTool",
+    "create_weather_tools",
+    "create_wardrobe_tools",
+    "create_image_tools",
+    "create_style_tools",
+    "get_all_tools",
 ]
