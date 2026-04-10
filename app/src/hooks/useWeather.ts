@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { WeatherData, LocationData } from "@/types/weather";
 
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK === "true";
+
 interface UseWeatherResult {
   weather: WeatherData | null;
   location: LocationData | null;
@@ -102,10 +104,11 @@ export function useWeather(): UseWeatherResult {
 
   const fetchWeatherData = useCallback(async (lat: number, lon: number) => {
     try {
+      const basePath = USE_MOCK ? "/mock" : "";
       const locationParam = `${lon.toFixed(2)},${lat.toFixed(2)}`;
       const [weatherRes, locationRes] = await Promise.all([
-        fetch(`/api/weather?location=${locationParam}`),
-        fetch(`/api/location?lat=${lat}&lon=${lon}`),
+        fetch(`${basePath}/api/weather?location=${locationParam}`),
+        fetch(`${basePath}/api/location?lat=${lat}&lon=${lon}`),
       ]);
 
       if (!weatherRes.ok || !locationRes.ok) {

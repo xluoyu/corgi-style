@@ -82,7 +82,7 @@ export function ClothesDetailModal({ clothes, isOpen, onClose }: ClothesDetailMo
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 40 }}
             transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
-            className="fixed inset-x-4 bottom-0 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[22rem] bg-white rounded-3xl shadow-xl z-50 overflow-hidden"
+            className="fixed inset-x-4 top-1/2 -translate-y-1/2 md:inset-auto md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[22rem] bg-white rounded-3xl shadow-xl z-50 overflow-hidden"
           >
             {/* 关闭按钮 */}
             <button

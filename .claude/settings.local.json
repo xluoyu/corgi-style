@@ -37,7 +37,8 @@
       "Bash(cd:*)",
       "Bash(npm run:*)",
       "Bash(psql -U postgres -d outfit_agent -f schema.sql)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(pnpm add:*)"
     ]
   }
 }

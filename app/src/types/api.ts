@@ -63,7 +63,7 @@ export interface UserProfileResponse {
 // ============ 衣物相关 ============
 
 export type ClothingCategory = "top" | "bottom" | "outerwear" | "inner" | "accessory";
-export type TemperatureRange = "hot" | "warm" | "mild" | "cool" | "cold";
+export type TemperatureRange = "summer" | "spring_autumn" | "winter" | "all_season";
 export type Scene = "daily" | "work" | "formal" | "sport" | "date" | "party";
 export type WearMethod = "casual" | "formal" | "sport";
 

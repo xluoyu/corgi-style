@@ -231,10 +231,10 @@ export default function ProfilePage() {
   const city = location?.city || "未知城市";
   const height = profile?.height;
   const weight = profile?.weight;
-  const stylePrefs = profile?.style_preferences
+  const stylePrefs: string[] = profile?.style_preferences
     ? (typeof profile.style_preferences === "string"
-      ? JSON.parse(profile.style_preferences)
-      : profile.style_preferences)
+        ? (profile.style_preferences as string).split(",").filter(Boolean)
+        : profile.style_preferences)
     : [];
 
   const isLoading = userLoading || profileLoading;

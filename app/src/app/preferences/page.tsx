@@ -12,7 +12,6 @@ import {
   AlertCircle,
   ArrowRight,
 } from "lucide-react";
-import { BottomNav } from "@/components/BottomNav";
 import { updateUserInfo, getUserPreference } from "@/lib/api";
 import type { UserProfile } from "@/types/api";
 import { useRouter } from "next/navigation";
@@ -333,7 +332,6 @@ export default function PreferencesPage() {
         </div>
       </main>
 
-      <BottomNav />
     </div>
   );
 }

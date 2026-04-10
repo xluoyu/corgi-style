@@ -11,7 +11,7 @@ import { LocationData } from "@/types/weather";
 async function reverseGeocode(latitude: number, longitude: number): Promise<LocationData | null> {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=10&accept-language=zh`;
-    
+
     const response = await fetch(url, {
       headers: {
         "User-Agent": "CorgiStyleApp/1.0",

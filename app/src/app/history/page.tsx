@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Calendar, Filter, RefreshCw, MapPin, Cloud, Sun, CloudRain, Snowflake, Thermometer } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Calendar, RefreshCw, ArrowLeft, Thermometer, MapPin, Sun, Cloud, CloudRain, Snowflake } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { BottomNav } from "@/components/BottomNav";
 import { generateTodayOutfit } from "@/lib/api";
 import type { GenerateOutfitResponse } from "@/types/api";
+import { useRouter } from "next/navigation";
+import { DayPicker } from "react-day-picker";
+import "react-day-picker/dist/style.css";
 
 /**
  * 穿搭记录接口
@@ -186,11 +188,13 @@ function WeatherIcon({ weather }: { weather: string }) {
  * HistoryPage - 穿搭历史页面
  */
 export default function HistoryPage() {
+  const router = useRouter();
   const [outfitHistory, setOutfitHistory] = useState<OutfitHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [showFilter, setShowFilter] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const datePickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // 加载穿搭历史数据
@@ -204,13 +208,18 @@ export default function HistoryPage() {
    * 根据日期筛选穿搭记录
    */
   const filteredHistory = selectedDate
-    ? outfitHistory.filter(item => item.date === selectedDate)
+    ? outfitHistory.filter(item => {
+        const itemDate = new Date(item.date);
+        return itemDate.toISOString().split('T')[0] === selectedDate.toISOString().split('T')[0];
+      })
     : outfitHistory;
 
   /**
-   * 获取所有可用日期
+   * 获取所有可用日期（Date 对象数组，供 react-day-picker 使用）
    */
-  const availableDates = Array.from(new Set(outfitHistory.map(item => item.date)));
+  const availableDates: Date[] = Array.from(
+    new Set(outfitHistory.map(item => item.date))
+  ).map(d => new Date(d));
 
   /**
    * 重新推荐穿搭
@@ -253,14 +262,26 @@ export default function HistoryPage() {
   };
 
   /**
-   * 切换筛选面板
+   * 格式化日期显示
    */
-  const toggleFilter = () => {
-    setShowFilter(!showFilter);
+  const formatDateDisplay = (date: Date | null) => {
+    if (!date) return "选择日期";
+    const dateStr = date.toISOString().split('T')[0];
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (dateStr === today.toISOString().split('T')[0]) {
+      return "今天";
+    } else if (dateStr === yesterday.toISOString().split('T')[0]) {
+      return "昨天";
+    } else {
+      return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+    }
   };
 
   /**
-   * 格式化日期显示
+   * 格式化日期（兼容原字符串格式）
    */
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -277,6 +298,21 @@ export default function HistoryPage() {
     }
   };
 
+  // 点击日期选择器外部关闭
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
+        setDatePickerOpen(false);
+      }
+    };
+    if (datePickerOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [datePickerOpen]);
+
   return (
     <div className="h-screen bg-[#F1F4F9] font-sans text-slate-900 relative">
       <div className="absolute top-0 left-0 w-full h-1/3 bg-gradient-to-b from-rose-100/20 to-transparent pointer-events-none z-0" />
@@ -284,68 +320,92 @@ export default function HistoryPage() {
       <main className="h-full overflow-y-auto relative z-10 pb-20">
         <div className="px-5 pt-6 pb-4">
           <header className="flex justify-between items-center mb-6">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">穿搭历史</h1>
-              <p className="text-xs text-slate-500 mt-1">查看您的穿搭记录</p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => router.back()}
+                className="w-9 h-9 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center hover:bg-slate-50 transition-colors"
+              >
+                <ArrowLeft size={18} className="text-slate-600" />
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">穿搭历史</h1>
+                <p className="text-xs text-slate-500 mt-1">查看您的穿搭记录</p>
+              </div>
             </div>
+          <div ref={datePickerRef} className="relative">
             <motion.button
               whileTap={{ scale: 0.95 }}
-              onClick={toggleFilter}
+              onClick={() => setDatePickerOpen(!datePickerOpen)}
               className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all ${
-                showFilter
+                selectedDate
                   ? "bg-[#FE8F39] text-white border-[#FE8F39]"
                   : "bg-white text-slate-600 border-slate-200"
               }`}
             >
-              <Filter size={16} />
-              <span className="text-xs font-bold">筛选</span>
+              <Calendar size={16} />
+              <span className="text-xs font-bold">{formatDateDisplay(selectedDate)}</span>
             </motion.button>
-          </header>
 
-          <AnimatePresence>
-            {showFilter && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mb-4"
-              >
-                <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Calendar size={16} className="text-[#FE8F39]" />
-                    <span className="text-sm font-bold text-slate-800">选择日期</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <motion.button
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => setSelectedDate(null)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                        selectedDate === null
-                          ? "bg-[#FE8F39] text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
+            <AnimatePresence>
+              {datePickerOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute right-0 top-12 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 p-3"
+                >
+                  <DayPicker
+                    mode="single"
+                    selected={selectedDate || undefined}
+                    onSelect={(date) => {
+                      setSelectedDate(date || null);
+                      setDatePickerOpen(false);
+                    }}
+                    disabled={(date) => {
+                      const dateStr = date.toISOString().split('T')[0];
+                      const isAvailable = availableDates.some(
+                        (d) => d.toISOString().split('T')[0] === dateStr
+                      );
+                      const isFuture = date > new Date();
+                      return !isAvailable || isFuture;
+                    }}
+                    modifiersClassNames={{
+                      selected: "!bg-[#FE8F39] !text-white !rounded-full !border-[#FE8F39]",
+                      disabled: "!text-slate-300 !bg-slate-50",
+                    }}
+                    classNames={{
+                      root: "w-full",
+                      months: "w-full",
+                      month: "w-full",
+                      caption: "flex justify-center items-center gap-2 mb-2",
+                      caption_label: "text-sm font-bold text-slate-700",
+                      nav: "flex gap-1",
+                      nav_button: "w-7 h-7 p-0 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 flex items-center justify-center",
+                      nav_button_previous: "",
+                      nav_button_next: "",
+                      head_cell: "text-[10px] font-bold text-slate-400 uppercase w-9",
+                      cell: "w-9 h-9 p-0 text-center text-sm",
+                      day: "w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium",
+                      day_button: "w-9 h-9 rounded-full",
+                    }}
+                  />
+                  {selectedDate && (
+                    <button
+                      onClick={() => {
+                        setSelectedDate(null);
+                        setDatePickerOpen(false);
+                      }}
+                      className="w-full mt-2 pt-2 border-t border-slate-100 text-xs text-slate-400 hover:text-slate-600 text-center"
                     >
-                      全部
-                    </motion.button>
-                    {availableDates.map(date => (
-                      <motion.button
-                        key={date}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => setSelectedDate(date)}
-                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                          selectedDate === date
-                            ? "bg-[#FE8F39] text-white"
-                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                        }`}
-                      >
-                        {formatDate(date)}
-                      </motion.button>
-                    ))}
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                      清除选择
+                    </button>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          </header>
         </div>
 
         <div className="px-5 pb-4">
@@ -485,7 +545,6 @@ export default function HistoryPage() {
         </div>
       </main>
 
-      <BottomNav />
     </div>
   );
 }
