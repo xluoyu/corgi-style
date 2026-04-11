@@ -250,13 +250,15 @@ interface FeatureItemProps {
   icon: React.ReactNode;
   color: string;
   span?: string;
+  onClick?: () => void;
 }
 
-function FeatureItem({ title, icon, color, span = "col-span-1" }: FeatureItemProps) {
+function FeatureItem({ title, icon, color, span = "col-span-1", onClick }: FeatureItemProps) {
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
+      onClick={onClick}
       className={`relative rounded-2xl p-3 flex flex-col justify-center items-center gap-2 shadow-sm transition-all border ${color} ${span} cursor-pointer`}
     >
       <div className="p-2 rounded-xl bg-white/40 border border-white/20">{icon}</div>
@@ -271,27 +273,35 @@ function FeatureItem({ title, icon, color, span = "col-span-1" }: FeatureItemPro
 function FeatureGrid() {
   const router = useRouter();
 
+  const handleUnauthorized = () => {
+    alert("该功能正在开发中，敬请期待！");
+  };
+
   return (
     <div className="grid grid-cols-4 gap-3">
       <FeatureItem
         title="穿搭日记"
         icon={<BookOpen size={20} className="text-rose-500" />}
         color="bg-rose-50 border-rose-100"
+        onClick={() => router.push("/history")}
       />
       <FeatureItem
         title="DIY穿搭"
         icon={<Palette size={20} className="text-blue-500" />}
         color="bg-blue-50 border-blue-100"
+        onClick={handleUnauthorized}
       />
       <FeatureItem
-        title="我的衣橱"
+        title="我的衣柜"
         icon={<Camera size={20} className="text-amber-500" />}
         color="bg-amber-50 border-amber-100"
+        onClick={() => router.push("/wardrobe")}
       />
       <FeatureItem
         title="穿搭集"
         icon={<LayoutGrid size={20} className="text-emerald-500" />}
         color="bg-emerald-50 border-emerald-100"
+        onClick={handleUnauthorized}
       />
       <motion.div
         whileTap={{ scale: 0.98 }}
