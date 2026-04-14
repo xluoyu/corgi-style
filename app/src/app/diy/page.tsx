@@ -11,7 +11,7 @@ import {
   Save,
   Check,
   PlusCircle,
-  PencilSimple,
+  Pencil,
   Trash,
   DotsSixVertical,
 } from 'lucide-react';
@@ -68,7 +68,7 @@ const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) =
           }}
           className="absolute -left-10 top-1/2 -translate-y-1/2 w-8 h-8 bg-white rounded-lg shadow-md border border-slate-100 flex items-center justify-center hover:bg-slate-50 transition-colors z-10"
         >
-          <PencilSimple className="w-4 h-4 text-slate-600" />
+          <Pencil className="w-4 h-4 text-slate-600" />
         </button>
       )}
 
