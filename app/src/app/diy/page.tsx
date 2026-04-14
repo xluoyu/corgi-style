@@ -5,10 +5,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft,
   X,
-  PlusCircle,
+  Plus,
   Shirt,
   Sparkles,
   Save,
+  Check,
+  PlusCircle,
 } from 'lucide-react';
 import { mockWardrobeClothes, categoryLabels, slotLabels } from './mock';
 import type { SlotClothing, AccessoryItem } from '@/types/diy';
@@ -19,7 +21,7 @@ interface MannequinImageProps {
 }
 
 const MannequinImage = ({ src }: MannequinImageProps) => {
-  const defaultSrc = '/images/mannequin.png';
+  const defaultSrc = '/images/body.png';
 
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -38,24 +40,21 @@ interface SlotZoneProps {
   type: 'top' | 'bottom' | 'shoes';
   clothes: SlotClothing[];
   onRemove: (id: string) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent) => void;
-  isActive: boolean;
+  onClick: () => void;
 }
 
-const SlotZone = ({ type, clothes, onRemove, onDragOver, onDrop, isActive }: SlotZoneProps) => {
+const SlotZone = ({ type, clothes, onRemove, onClick }: SlotZoneProps) => {
   const positions = {
-    top: { top: '12%', left: '50%', transform: 'translateX(-50%)' },
-    bottom: { top: '42%', left: '50%', transform: 'translateX(-50%)' },
-    shoes: { top: '80%', left: '50%', transform: 'translateX(-50%)' },
+    top: { top: '20%', left: '50%', transform: 'translateX(-50%)' },
+    bottom: { top: '48%', left: '50%', transform: 'translateX(-50%)' },
+    shoes: { top: '86%', left: '50%', transform: 'translateX(-50%)' },
   };
 
   return (
     <div
-      className={`absolute transition-all duration-300 ${isActive ? 'scale-105' : ''}`}
+      className="absolute cursor-pointer"
       style={positions[type]}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
+      onClick={onClick}
     >
       {/* Drop Zone Indicator */}
       <div
@@ -63,11 +62,9 @@ const SlotZone = ({ type, clothes, onRemove, onDragOver, onDrop, isActive }: Slo
           relative flex flex-col items-center justify-center
           border-2 border-dashed rounded-2xl
           transition-all duration-300
-          ${isActive
-            ? 'border-[#FE8F39] bg-[#FE8F39]/10'
-            : clothes.length > 0
-              ? 'border-emerald-300 bg-emerald-50/50'
-              : 'border-slate-200 bg-white/50'
+          ${clothes.length > 0
+            ? 'border-emerald-300 bg-emerald-50/50'
+            : 'border-slate-200 bg-white/50 hover:border-slate-300 hover:bg-white'
           }
         `}
         style={{
@@ -89,10 +86,12 @@ const SlotZone = ({ type, clothes, onRemove, onDragOver, onDrop, isActive }: Slo
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               className="relative group"
+              onClick={(e) => e.stopPropagation()}
             >
               <div
-                className="w-12 h-12 rounded-lg overflow-hidden border-2 border-white shadow-md"
+                className="w-12 h-12 rounded-lg overflow-hidden border-2 border-white shadow-md cursor-pointer hover:border-red-300 transition-colors"
                 style={{ zIndex: clothes.length - index }}
+                onClick={() => onRemove(item.id)}
               >
                 <img
                   src={item.imageUrl}
@@ -103,8 +102,11 @@ const SlotZone = ({ type, clothes, onRemove, onDragOver, onDrop, isActive }: Slo
               </div>
               {/* Remove button */}
               <button
-                onClick={() => onRemove(item.id)}
-                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hidden group-hover:flex"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(item.id);
+                }}
+                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex"
               >
                 <X className="w-2.5 h-2.5 text-white" />
               </button>
@@ -119,7 +121,7 @@ const SlotZone = ({ type, clothes, onRemove, onDragOver, onDrop, isActive }: Slo
           {clothes.length === 0 && (
             <div className="text-center p-2">
               <PlusCircle className="w-5 h-5 text-slate-300 mx-auto" />
-              <span className="text-[10px] text-slate-400 mt-1 block">拖放衣物</span>
+              <span className="text-[10px] text-slate-400 mt-1 block">点击添加</span>
             </div>
           )}
         </div>
@@ -136,33 +138,10 @@ interface AccessoryItemProps {
 }
 
 const AccessoryItemComponent = ({ item, onPositionChange, onRemove }: AccessoryItemProps) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
   const itemRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  const handleDragStart = (e: React.DragEvent) => {
-    setIsDragging(true);
-    e.dataTransfer.setData('text/plain', JSON.stringify(item.clothing));
-    e.dataTransfer.setData('application/accessory', 'true');
-  };
-
-  const handleDragEnd = (e: React.DragEvent) => {
-    setIsDragging(false);
-    if (containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const containerRect = containerRef.current.parentElement?.getBoundingClientRect();
-      if (containerRect) {
-        const x = e.clientX - containerRect.left;
-        const y = e.clientY - containerRect.top;
-        onPositionChange(item.id, { x, y });
-      }
-    }
-  };
 
   return (
     <div
-      ref={containerRef}
       className="absolute"
       style={{ left: item.position.x, top: item.position.y }}
     >
@@ -176,18 +155,14 @@ const AccessoryItemComponent = ({ item, onPositionChange, onRemove }: AccessoryI
             const x = item.position.x + info.offset.x;
             const y = item.position.y + info.offset.y;
             onPositionChange(item.id, {
-              x: Math.max(0, Math.min(x, containerRect.width - 50)),
-              y: Math.max(0, Math.min(y, containerRect.height - 50)),
+              x: Math.max(0, Math.min(x, containerRect.width - 56)),
+              y: Math.max(0, Math.min(y, containerRect.height - 56)),
             });
           }
         }}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.95 }}
         className="relative cursor-grab active:cursor-grabbing"
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setShowMenu(true);
-        }}
       >
         <div className="w-14 h-14 rounded-xl overflow-hidden border-2 border-white shadow-lg bg-white">
           <img
@@ -212,21 +187,40 @@ const AccessoryItemComponent = ({ item, onPositionChange, onRemove }: AccessoryI
   );
 };
 
-// Clothing Card Component (Draggable)
+// Clothing Card Component ( selectable)
 interface ClothingCardProps {
   clothing: SlotClothing;
-  onDragStart: (e: React.DragEvent, clothing: SlotClothing) => void;
+  selected: boolean;
+  onToggleSelect: () => void;
 }
 
-const ClothingCard = ({ clothing, onDragStart }: ClothingCardProps) => {
+const ClothingCard = ({ clothing, selected, onToggleSelect }: ClothingCardProps) => {
   return (
     <motion.div
-      draggable
-      onDragStart={(e) => onDragStart(e, clothing)}
-      whileHover={{ scale: 1.05, y: -2 }}
+      whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
-      className="relative cursor-grab active:cursor-grabbing bg-white rounded-xl p-2 shadow-sm border border-slate-100"
+      onClick={onToggleSelect}
+      className={`
+        relative cursor-pointer rounded-xl p-2 shadow-sm border-2 transition-all
+        ${selected
+          ? 'border-[#FE8F39] bg-[#FE8F39]/5'
+          : 'border-slate-100 bg-white hover:border-slate-200'
+        }
+      `}
     >
+      {/* Checkbox */}
+      <div
+        className={`
+          absolute top-1.5 right-1.5 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all
+          ${selected
+            ? 'bg-[#FE8F39] border-[#FE8F39]'
+            : 'border-slate-300 bg-white'
+          }
+        `}
+      >
+        {selected && <Check className="w-3 h-3 text-white" />}
+      </div>
+
       <div className="aspect-square rounded-lg overflow-hidden bg-slate-50">
         <img
           src={clothing.imageUrl}
@@ -255,8 +249,10 @@ interface WardrobeDrawerProps {
   onClose: () => void;
   clothes: SlotClothing[];
   selectedCategory: string;
+  selectedIds: string[];
   onCategoryChange: (category: string) => void;
-  onDragStart: (e: React.DragEvent, clothing: SlotClothing) => void;
+  onToggleSelect: (id: string) => void;
+  onAddToCanvas: () => void;
 }
 
 const WardrobeDrawer = ({
@@ -264,8 +260,10 @@ const WardrobeDrawer = ({
   onClose,
   clothes,
   selectedCategory,
+  selectedIds,
   onCategoryChange,
-  onDragStart,
+  onToggleSelect,
+  onAddToCanvas,
 }: WardrobeDrawerProps) => {
   const filteredClothes =
     selectedCategory === 'all'
@@ -273,6 +271,8 @@ const WardrobeDrawer = ({
       : clothes.filter((c) => c.category === selectedCategory);
 
   const categories = ['all', 'top', 'bottom', 'shoes', 'accessory'];
+
+  const selectedCount = selectedIds.length;
 
   return (
     <>
@@ -335,7 +335,8 @@ const WardrobeDrawer = ({
               <ClothingCard
                 key={clothing.id}
                 clothing={clothing}
-                onDragStart={onDragStart}
+                selected={selectedIds.includes(clothing.id)}
+                onToggleSelect={() => onToggleSelect(clothing.id)}
               />
             ))}
           </div>
@@ -347,11 +348,22 @@ const WardrobeDrawer = ({
           )}
         </div>
 
-        {/* Hint */}
+        {/* Add Button */}
         <div className="p-3 border-t border-slate-100 bg-slate-50">
-          <p className="text-[10px] text-slate-400 text-center">
-            拖拽衣物到模特身上进行搭配
-          </p>
+          <button
+            onClick={onAddToCanvas}
+            disabled={selectedCount === 0}
+            className={`
+              w-full py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all
+              ${selectedCount > 0
+                ? 'bg-[#FE8F39] text-white hover:bg-[#e07d2a]'
+                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              }
+            `}
+          >
+            <Plus className="w-4 h-4" />
+            {selectedCount > 0 ? `添加到画布 (${selectedCount})` : '选择衣物添加到画布'}
+          </button>
         </div>
       </motion.div>
     </>
@@ -449,7 +461,7 @@ const OutfitSummary = ({ slots, accessories }: OutfitSummaryProps) => {
 
         {totalItems === 0 && (
           <p className="text-sm text-slate-400 w-full text-center py-2">
-            从右侧抽屉拖拽衣物开始搭配
+            点击点位区域添加衣物
           </p>
         )}
       </div>
@@ -535,7 +547,7 @@ const GeneratedImageModal = ({ isOpen, imageUrl, onClose, onSave, isLoading }: G
 export default function DIYPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [activeDropZone, setActiveDropZone] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [slots, setSlots] = useState<{
     top: SlotClothing[];
     bottom: SlotClothing | null;
@@ -551,106 +563,44 @@ export default function DIYPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Handle drag start from wardrobe
-  const handleDragStart = useCallback((e: React.DragEvent, clothing: SlotClothing) => {
-    e.dataTransfer.setData('application/json', JSON.stringify(clothing));
+  // Toggle clothing selection
+  const handleToggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((i) => i !== id)
+        : [...prev, id]
+    );
   }, []);
 
-  // Handle drag over
-  const handleDragOver = useCallback((e: React.DragEvent, zone: string) => {
-    e.preventDefault();
-    setActiveDropZone(zone);
-  }, []);
+  // Add selected clothes to canvas
+  const handleAddToCanvas = useCallback(() => {
+    const selectedClothes = mockWardrobeClothes.filter((c) => selectedIds.includes(c.id));
 
-  // Handle drop on slot zone
-  const handleDropOnSlot = useCallback(
-    (e: React.DragEvent, slotType: 'top' | 'bottom' | 'shoes') => {
-      e.preventDefault();
-      setActiveDropZone(null);
+    // Separate accessories from clothes
+    const accessoryClothes = selectedClothes.filter((c) => c.category === 'accessory');
+    const topClothes = selectedClothes.filter((c) => c.category === 'top');
+    const bottomClothes = selectedClothes.filter((c) => c.category === 'bottom');
+    const shoesClothes = selectedClothes.filter((c) => c.category === 'shoes');
 
-      try {
-        const data = e.dataTransfer.getData('application/json');
-        if (!data) return;
-        const clothing = JSON.parse(data) as SlotClothing;
+    // Add to slots
+    setSlots((prev) => ({
+      top: [...prev.top, ...topClothes],
+      bottom: bottomClothes[0] || prev.bottom, // Only take first bottom
+      shoes: shoesClothes[0] || prev.shoes, // Only take first shoes
+    }));
 
-        if (clothing.category === 'accessory') {
-          // Accessories go to free-form area
-          const rect = canvasRef.current?.getBoundingClientRect();
-          if (rect) {
-            const x = e.clientX - rect.left - 28; // Center the accessory
-            const y = e.clientY - rect.top - 28;
-            setAccessories((prev) => [
-              ...prev,
-              {
-                id: `acc-${Date.now()}`,
-                clothing,
-                position: { x: Math.max(0, x), y: Math.max(0, y) },
-              },
-            ]);
-          }
-          return;
-        }
+    // Add accessories to top-left corner
+    const newAccessories = accessoryClothes.map((c, index) => ({
+      id: `acc-${Date.now()}-${index}`,
+      clothing: c,
+      position: { x: 20 + index * 60, y: 20 }, // Offset each accessory
+    }));
+    setAccessories((prev) => [...prev, ...newAccessories]);
 
-        // Handle slot-specific logic
-        if (slotType === 'top') {
-          if (clothing.category !== 'top') return;
-          setSlots((prev) => ({
-            ...prev,
-            top: [...prev.top, clothing],
-          }));
-        } else if (slotType === 'bottom') {
-          if (clothing.category !== 'bottom') return;
-          setSlots((prev) => ({
-            ...prev,
-            bottom: clothing,
-          }));
-        } else if (slotType === 'shoes') {
-          if (clothing.category !== 'shoes') return;
-          setSlots((prev) => ({
-            ...prev,
-            shoes: clothing,
-          }));
-        }
-      } catch (err) {
-        console.error('Drop error:', err);
-      }
-    },
-    []
-  );
-
-  // Handle drop on free-form accessory area
-  const handleDropOnAccessoryArea = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      const isAccessory = e.dataTransfer.types.includes('application/accessory');
-      if (!isAccessory) {
-        // Try to parse as clothing
-        try {
-          const data = e.dataTransfer.getData('application/json');
-          if (!data) return;
-          const clothing = JSON.parse(data) as SlotClothing;
-          if (clothing.category !== 'accessory') return;
-
-          const rect = canvasRef.current?.getBoundingClientRect();
-          if (rect) {
-            const x = e.clientX - rect.left - 28;
-            const y = e.clientY - rect.top - 28;
-            setAccessories((prev) => [
-              ...prev,
-              {
-                id: `acc-${Date.now()}`,
-                clothing,
-                position: { x: Math.max(0, x), y: Math.max(0, y) },
-              },
-            ]);
-          }
-        } catch (err) {
-          console.error('Drop error:', err);
-        }
-      }
-    },
-    []
-  );
+    // Clear selection and close drawer
+    setSelectedIds([]);
+    setDrawerOpen(false);
+  }, [selectedIds]);
 
   // Remove clothing from slot
   const handleRemoveFromSlot = useCallback((id: string) => {
@@ -660,6 +610,12 @@ export default function DIYPage() {
       bottom: prev.bottom?.id === id ? null : prev.bottom,
       shoes: prev.shoes?.id === id ? null : prev.shoes,
     }));
+  }, []);
+
+  // Handle slot click - open drawer with category filter
+  const handleSlotClick = useCallback((type: 'top' | 'bottom' | 'shoes') => {
+    setSelectedCategory(type);
+    setDrawerOpen(true);
   }, []);
 
   // Remove accessory
@@ -732,12 +688,6 @@ export default function DIYPage() {
           ref={canvasRef}
           className="relative bg-white rounded-3xl shadow-lg overflow-hidden border border-slate-100"
           style={{ height: 520 }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setActiveDropZone('accessory');
-          }}
-          onDrop={handleDropOnAccessoryArea}
-          onDragLeave={() => setActiveDropZone(null)}
         >
           {/* Background gradient */}
           <div className="absolute inset-0 bg-gradient-to-b from-slate-50 to-slate-100/50" />
@@ -753,30 +703,24 @@ export default function DIYPage() {
               <MannequinImage />
             </div>
 
-            {/* Drop Zones */}
+            {/* Slot Zones */}
             <SlotZone
               type="top"
               clothes={slots.top}
               onRemove={handleRemoveFromSlot}
-              onDragOver={(e) => handleDragOver(e, 'top')}
-              onDrop={(e) => handleDropOnSlot(e, 'top')}
-              isActive={activeDropZone === 'top'}
+              onClick={() => handleSlotClick('top')}
             />
             <SlotZone
               type="bottom"
               clothes={slots.bottom ? [slots.bottom] : []}
               onRemove={handleRemoveFromSlot}
-              onDragOver={(e) => handleDragOver(e, 'bottom')}
-              onDrop={(e) => handleDropOnSlot(e, 'bottom')}
-              isActive={activeDropZone === 'bottom'}
+              onClick={() => handleSlotClick('bottom')}
             />
             <SlotZone
               type="shoes"
               clothes={slots.shoes ? [slots.shoes] : []}
               onRemove={handleRemoveFromSlot}
-              onDragOver={(e) => handleDragOver(e, 'shoes')}
-              onDrop={(e) => handleDropOnSlot(e, 'shoes')}
-              isActive={activeDropZone === 'shoes'}
+              onClick={() => handleSlotClick('shoes')}
             />
 
             {/* Accessories Layer */}
@@ -788,22 +732,6 @@ export default function DIYPage() {
                 onRemove={handleRemoveAccessory}
               />
             ))}
-
-            {/* Accessory Drop Zone Indicator */}
-            {activeDropZone === 'accessory' && accessories.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="px-4 py-2 bg-[#FE8F39]/10 border border-[#FE8F39]/30 rounded-full">
-                  <span className="text-sm text-[#FE8F39] font-medium">放置配饰区域</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Zone Labels */}
-          <div className="absolute left-4 top-1/2 -translate-y-1/2 space-y-8">
-            <div className="text-[10px] text-slate-400 font-medium tracking-wider">上身</div>
-            <div className="text-[10px] text-slate-400 font-medium tracking-wider">下身</div>
-            <div className="text-[10px] text-slate-400 font-medium tracking-wider">鞋子</div>
           </div>
         </div>
       </div>
@@ -853,8 +781,10 @@ export default function DIYPage() {
         onClose={() => setDrawerOpen(false)}
         clothes={mockWardrobeClothes}
         selectedCategory={selectedCategory}
+        selectedIds={selectedIds}
         onCategoryChange={setSelectedCategory}
-        onDragStart={handleDragStart}
+        onToggleSelect={handleToggleSelect}
+        onAddToCanvas={handleAddToCanvas}
       />
 
       {/* Generated Image Modal */}
