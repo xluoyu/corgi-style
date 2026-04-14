@@ -19,7 +19,7 @@ interface MannequinImageProps {
 }
 
 const MannequinImage = ({ src }: MannequinImageProps) => {
-  const defaultSrc = 'https://minimax-algeng-chat-tts.oss-cn-wulanchabu.aliyuncs.com/ccv2%2F2026-04-14%2FMiniMax-M2.7-highspeed%2F2017772342268141803%2Fcb6e7140fdcf3f5fd5344d1fca1c28ae9e6a5c0a353903e9b7893d2658d91cee..png?Expires=1776242584&OSSAccessKeyId=LTAI5tGLnRTkBjLuYPjNcKQ8&Signature=dn1aRMnpE1q4kqAYPXlZTCAUOAM%3D';
+  const defaultSrc = '/images/mannequin.png';
 
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
