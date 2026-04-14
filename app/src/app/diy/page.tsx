@@ -13,7 +13,7 @@ import {
   PlusCircle,
   Pencil,
   Trash,
-  DotsSixVertical,
+  GripVertical,
 } from 'lucide-react';
 import { mockWardrobeClothes, categoryLabels, slotLabels } from './mock';
 import type { SlotClothing, AccessoryItem } from '@/types/diy';
@@ -345,7 +345,7 @@ const TopSlotEditor = ({ isOpen, onClose, clothes, onReorder, onRemove }: TopSlo
                   <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-2 border border-slate-100">
                     {/* Drag handle */}
                     <div className="cursor-grab active:cursor-grabbing">
-                      <DotsSixVertical className="w-5 h-5 text-slate-400" />
+                      <GripVertical className="w-5 h-5 text-slate-400" />
                     </div>
 
                     {/* Thumbnail */}
