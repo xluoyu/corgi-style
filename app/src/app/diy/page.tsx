@@ -121,16 +121,6 @@ const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) =
                   draggable={false}
                 />
               </div>
-              {/* Remove button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(item.id);
-                }}
-                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex"
-              >
-                <X className="w-2.5 h-2.5 text-white" />
-              </button>
               {/* Layer indicator for top */}
               {type === 'top' && index > 0 && (
                 <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-[#FE8F39] rounded-full flex items-center justify-center">
