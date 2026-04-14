@@ -51,7 +51,7 @@ const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) =
   const positions = {
     top: { top: '20%', left: '50%', transform: 'translateX(-50%)' },
     bottom: { top: '48%', left: '50%', transform: 'translateX(-50%)' },
-    shoes: { top: '86%', left: '50%', transform: 'translateX(-50%)' },
+    shoes: { top: '75%', left: '50%', transform: 'translateX(-50%)' },
   };
 
   return (
@@ -84,8 +84,8 @@ const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) =
           }
         `}
         style={{
-          width: type === 'shoes' ? 120 : 100,
-          height: type === 'shoes' ? 60 : type === 'top' ? 120 : 100,
+          width: 100,
+          height: 120,
         }}
         onClick={onClick}
       >
@@ -94,45 +94,55 @@ const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) =
           <span className="text-[10px] font-medium text-slate-500">{slotLabels[type]}</span>
         </div>
 
-        {/* Clothes in this slot - stacked with absolute positioning */}
-        <div className="relative flex items-center justify-center" style={{ width: type === 'shoes' ? 120 : 100, height: type === 'shoes' ? 60 : type === 'top' ? 120 : 100 }}>
-          {clothes.map((item, index) => (
-            <motion.div
-              key={item.id}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              className="absolute group"
-              style={{
-                zIndex: index + 1, // outermost (last) on top
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div
-                className="w-12 h-12 rounded-lg overflow-hidden border-2 border-white shadow-md"
+        {/* Clothes in this slot - stacked vertically with horizontal centering */}
+        <div className="relative" style={{ width: 100, height: 120 }}>
+          {clothes.map((item, index) => {
+            // 尺寸：1件80px，每增加一件减少5px，最小60px
+            const itemSize = Math.max(60, 80 - (clothes.length - 1) * 5);
+            // 水平居中：容器100px - 衣物尺寸 / 2
+            const containerWidth = 100;
+            const leftPos = (containerWidth - itemSize) / 2;
+            // top: 第一件20%，每增加一件向下偏移10px
+            const topOffset = 10;
+            const topPosition = `calc(20% + ${index * topOffset}px)`;
+
+            return (
+              <motion.div
+                key={item.id}
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                className="absolute"
+                style={{
+                  zIndex: index + 1,
+                  left: leftPos,
+                  top: topPosition,
+                  width: itemSize,
+                  height: itemSize,
+                }}
+                onClick={(e) => e.stopPropagation()}
               >
-                <img
-                  src={item.imageUrl}
-                  alt={item.name}
-                  className="w-full h-full object-cover"
-                  draggable={false}
-                />
-              </div>
-              {/* Layer indicator for top */}
-              {type === 'top' && index > 0 && (
-                <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-[#FE8F39] rounded-full flex items-center justify-center">
-                  <span className="text-[8px] text-white font-bold">{index + 1}</span>
+                <div className="w-full h-full rounded-lg overflow-hidden border-2 border-white shadow-md">
+                  <img
+                    src={item.imageUrl}
+                    alt={item.name}
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                  />
                 </div>
-              )}
-            </motion.div>
-          ))}
+                {/* Layer indicator for top */}
+                {type === 'top' && index > 0 && (
+                  <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-[#FE8F39] rounded-full flex items-center justify-center">
+                    <span className="text-[8px] text-white font-bold">{index + 1}</span>
+                  </div>
+                )}
+              </motion.div>
+            );
+          })}
           {clothes.length === 0 && (
-            <div className="text-center p-2 cursor-pointer" onClick={onClick}>
-              <PlusCircle className="w-5 h-5 text-slate-300 mx-auto" />
-              <span className="text-[10px] text-slate-400 mt-1 block">点击添加</span>
+            <div className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer" onClick={onClick}>
+              <PlusCircle className="w-5 h-5 text-slate-300" />
+              <span className="text-[10px] text-slate-400 mt-1">点击添加</span>
             </div>
           )}
         </div>
@@ -898,22 +908,6 @@ export default function DIYPage() {
       {/* Outfit Summary */}
       <div className="px-4 mt-4">
         <OutfitSummary slots={slots} accessories={accessories} />
-      </div>
-
-      {/* Prompt Input */}
-      <div className="px-4 mt-4">
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-4 h-4 text-[#FE8F39]" />
-            <span className="text-sm font-medium text-slate-900">补充描述</span>
-            <span className="text-[10px] text-slate-400">(可选)</span>
-          </div>
-          <input
-            type="text"
-            placeholder="例如：适合春日出行，休闲风格..."
-            className="w-full px-3 py-2 bg-slate-50 rounded-xl text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#FE8F39]/30"
-          />
-        </div>
       </div>
 
       {/* Generate Button */}
