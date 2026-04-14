@@ -13,71 +13,25 @@ import {
 import { mockWardrobeClothes, categoryLabels, slotLabels } from './mock';
 import type { SlotClothing, AccessoryItem } from '@/types/diy';
 
-// Mannequin SVG Component
-const MannequinSVG = () => (
-  <svg
-    viewBox="0 0 200 400"
-    className="w-full h-full"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    {/* Head */}
-    <circle cx="100" cy="40" r="30" stroke="#CBD5E1" strokeWidth="2" strokeDasharray="4 4" />
-    {/* Neck */}
-    <line x1="100" y1="70" x2="100" y2="90" stroke="#CBD5E1" strokeWidth="2" strokeDasharray="4 4" />
-    {/* Torso */}
-    <path
-      d="M60 90 L140 90 L150 200 L50 200 Z"
-      stroke="#CBD5E1"
-      strokeWidth="2"
-      strokeDasharray="4 4"
-      fill="#F8FAFC"
-    />
-    {/* Left Arm */}
-    <path
-      d="M60 95 L30 160 L35 165 L65 105"
-      stroke="#CBD5E1"
-      strokeWidth="2"
-      strokeDasharray="4 4"
-      fill="#F8FAFC"
-    />
-    {/* Right Arm */}
-    <path
-      d="M140 95 L170 160 L165 165 L135 105"
-      stroke="#CBD5E1"
-      strokeWidth="2"
-      strokeDasharray="4 4"
-      fill="#F8FAFC"
-    />
-    {/* Hips */}
-    <path
-      d="M55 200 L145 200 L140 250 L60 250 Z"
-      stroke="#CBD5E1"
-      strokeWidth="2"
-      strokeDasharray="4 4"
-      fill="#F8FAFC"
-    />
-    {/* Left Leg */}
-    <path
-      d="M65 250 L75 350 L65 355 L55 355 L55 250"
-      stroke="#CBD5E1"
-      strokeWidth="2"
-      strokeDasharray="4 4"
-      fill="#F8FAFC"
-    />
-    {/* Right Leg */}
-    <path
-      d="M125 250 L135 350 L145 355 L135 355 L125 250"
-      stroke="#CBD5E1"
-      strokeWidth="2"
-      strokeDasharray="4 4"
-      fill="#F8FAFC"
-    />
-    {/* Feet */}
-    <ellipse cx="65" cy="365" rx="20" ry="8" stroke="#CBD5E1" strokeWidth="2" strokeDasharray="4 4" fill="#F8FAFC" />
-    <ellipse cx="135" cy="365" rx="20" ry="8" stroke="#CBD5E1" strokeWidth="2" strokeDasharray="4 4" fill="#F8FAFC" />
-  </svg>
-);
+// Mannequin Image Component
+interface MannequinImageProps {
+  src?: string;
+}
+
+const MannequinImage = ({ src }: MannequinImageProps) => {
+  const defaultSrc = 'https://minimax-algeng-chat-tts.oss-cn-wulanchabu.aliyuncs.com/ccv2%2F2026-04-14%2FMiniMax-M2.7-highspeed%2F2017772342268141803%2Fcb6e7140fdcf3f5fd5344d1fca1c28ae9e6a5c0a353903e9b7893d2658d91cee..png?Expires=1776242584&OSSAccessKeyId=LTAI5tGLnRTkBjLuYPjNcKQ8&Signature=dn1aRMnpE1q4kqAYPXlZTCAUOAM%3D';
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <img
+        src={src || defaultSrc}
+        alt="模特"
+        className="w-full h-full object-contain"
+        draggable={false}
+      />
+    </div>
+  );
+};
 
 // Slot Zone Component
 interface SlotZoneProps {
@@ -794,9 +748,9 @@ export default function DIYPage() {
 
           {/* Mannequin with Slot Zones */}
           <div className="relative w-full h-full flex items-center justify-center">
-            {/* Mannequin SVG */}
+            {/* Mannequin Image */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <MannequinSVG />
+              <MannequinImage />
             </div>
 
             {/* Drop Zones */}
