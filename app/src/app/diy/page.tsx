@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import {
   ArrowLeft,
   X,
@@ -11,6 +11,9 @@ import {
   Save,
   Check,
   PlusCircle,
+  PencilSimple,
+  Trash,
+  DotsSixVertical,
 } from 'lucide-react';
 import { mockWardrobeClothes, categoryLabels, slotLabels } from './mock';
 import type { SlotClothing, AccessoryItem } from '@/types/diy';
@@ -41,9 +44,10 @@ interface SlotZoneProps {
   clothes: SlotClothing[];
   onRemove: (id: string) => void;
   onClick: () => void;
+  onEdit?: () => void;
 }
 
-const SlotZone = ({ type, clothes, onRemove, onClick }: SlotZoneProps) => {
+const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) => {
   const positions = {
     top: { top: '20%', left: '50%', transform: 'translateX(-50%)' },
     bottom: { top: '48%', left: '50%', transform: 'translateX(-50%)' },
@@ -52,10 +56,22 @@ const SlotZone = ({ type, clothes, onRemove, onClick }: SlotZoneProps) => {
 
   return (
     <div
-      className="absolute cursor-pointer"
+      className="absolute"
       style={positions[type]}
-      onClick={onClick}
     >
+      {/* Edit button for top slot */}
+      {type === 'top' && clothes.length > 0 && onEdit && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          className="absolute -left-10 top-1/2 -translate-y-1/2 w-8 h-8 bg-white rounded-lg shadow-md border border-slate-100 flex items-center justify-center hover:bg-slate-50 transition-colors z-10"
+        >
+          <PencilSimple className="w-4 h-4 text-slate-600" />
+        </button>
+      )}
+
       {/* Drop Zone Indicator */}
       <div
         className={`
@@ -64,13 +80,14 @@ const SlotZone = ({ type, clothes, onRemove, onClick }: SlotZoneProps) => {
           transition-all duration-300
           ${clothes.length > 0
             ? 'border-emerald-300 bg-emerald-50/50'
-            : 'border-slate-200 bg-white/50 hover:border-slate-300 hover:bg-white'
+            : 'border-slate-200 bg-white/50 hover:border-slate-300 hover:bg-white cursor-pointer'
           }
         `}
         style={{
           width: type === 'shoes' ? 120 : 100,
           height: type === 'shoes' ? 60 : type === 'top' ? 120 : 100,
         }}
+        onClick={clothes.length === 0 ? onClick : undefined}
       >
         {/* Slot Label */}
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-white rounded-full shadow-sm border border-slate-100">
@@ -89,9 +106,8 @@ const SlotZone = ({ type, clothes, onRemove, onClick }: SlotZoneProps) => {
               onClick={(e) => e.stopPropagation()}
             >
               <div
-                className="w-12 h-12 rounded-lg overflow-hidden border-2 border-white shadow-md cursor-pointer hover:border-red-300 transition-colors"
+                className="w-12 h-12 rounded-lg overflow-hidden border-2 border-white shadow-md"
                 style={{ zIndex: clothes.length - index }}
-                onClick={() => onRemove(item.id)}
               >
                 <img
                   src={item.imageUrl}
@@ -119,7 +135,7 @@ const SlotZone = ({ type, clothes, onRemove, onClick }: SlotZoneProps) => {
             </motion.div>
           ))}
           {clothes.length === 0 && (
-            <div className="text-center p-2">
+            <div className="text-center p-2" onClick={onClick}>
               <PlusCircle className="w-5 h-5 text-slate-300 mx-auto" />
               <span className="text-[10px] text-slate-400 mt-1 block">点击添加</span>
             </div>
@@ -240,6 +256,131 @@ const ClothingCard = ({ clothing, selected, onToggleSelect }: ClothingCardProps)
         </div>
       </div>
     </motion.div>
+  );
+};
+
+// Top Slot Editor Drawer Component
+interface TopSlotEditorProps {
+  isOpen: boolean;
+  onClose: () => void;
+  clothes: SlotClothing[];
+  onReorder: (newOrder: SlotClothing[]) => void;
+  onRemove: (id: string) => void;
+}
+
+const TopSlotEditor = ({ isOpen, onClose, clothes, onReorder, onRemove }: TopSlotEditorProps) => {
+  const [items, setItems] = useState(clothes);
+
+  // Update local items when clothes prop changes
+  useState(() => {
+    setItems(clothes);
+  });
+
+  const handleDragEnd = (newItems: SlotClothing[]) => {
+    setItems(newItems);
+    onReorder(newItems);
+  };
+
+  return (
+    <>
+      {/* Backdrop */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Drawer - slides from left */}
+      <motion.div
+        initial={{ x: '-100%' }}
+        animate={{ x: isOpen ? 0 : '-100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="fixed left-0 top-0 bottom-0 w-[260px] bg-white shadow-2xl z-50 flex flex-col"
+      >
+        {/* Header */}
+        <div className="p-4 border-b border-slate-100">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold text-slate-900">编辑上身</h2>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
+            >
+              <X className="w-4 h-4 text-slate-600" />
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1">从上到下表示从内到外</p>
+        </div>
+
+        {/* Reorderable List */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {items.length === 0 ? (
+            <div className="text-center py-8">
+              <Shirt className="w-12 h-12 text-slate-200 mx-auto mb-2" />
+              <p className="text-sm text-slate-400">暂无衣物</p>
+            </div>
+          ) : (
+            <Reorder.Group
+              axis="y"
+              values={items}
+              onReorder={handleDragEnd}
+              className="flex flex-col gap-2"
+            >
+              {items.map((item, index) => (
+                <Reorder.Item
+                  key={item.id}
+                  value={item}
+                  className="relative"
+                >
+                  {/* Dashed line connector */}
+                  {index < items.length - 1 && (
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full w-0.5 h-4 border-l-2 border-dashed border-slate-300 z-10" />
+                  )}
+
+                  <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-2 border border-slate-100">
+                    {/* Drag handle */}
+                    <div className="cursor-grab active:cursor-grabbing">
+                      <DotsSixVertical className="w-5 h-5 text-slate-400" />
+                    </div>
+
+                    {/* Thumbnail */}
+                    <div className="w-14 h-14 rounded-lg overflow-hidden bg-white border border-slate-100">
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        className="w-full h-full object-cover"
+                        draggable={false}
+                      />
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-700 truncate">{item.name}</p>
+                      <p className="text-[10px] text-slate-400">
+                        {index === 0 ? '最内层' : index === items.length - 1 ? '最外层' : `第 ${index + 1} 层`}
+                      </p>
+                    </div>
+
+                    {/* Delete button */}
+                    <button
+                      onClick={() => onRemove(item.id)}
+                      className="w-7 h-7 rounded-full bg-red-50 flex items-center justify-center hover:bg-red-100 transition-colors"
+                    >
+                      <Trash className="w-4 h-4 text-red-500" />
+                    </button>
+                  </div>
+                </Reorder.Item>
+              ))}
+            </Reorder.Group>
+          )}
+        </div>
+      </motion.div>
+    </>
   );
 };
 
@@ -546,6 +687,7 @@ const GeneratedImageModal = ({ isOpen, imageUrl, onClose, onSave, isLoading }: G
 // Main DIY Page Component
 export default function DIYPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [topEditorOpen, setTopEditorOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [slots, setSlots] = useState<{
@@ -609,6 +751,14 @@ export default function DIYPage() {
       top: prev.top.filter((c) => c.id !== id),
       bottom: prev.bottom?.id === id ? null : prev.bottom,
       shoes: prev.shoes?.id === id ? null : prev.shoes,
+    }));
+  }, []);
+
+  // Handle top slot reorder
+  const handleTopReorder = useCallback((newOrder: SlotClothing[]) => {
+    setSlots((prev) => ({
+      ...prev,
+      top: newOrder,
     }));
   }, []);
 
@@ -709,6 +859,7 @@ export default function DIYPage() {
               clothes={slots.top}
               onRemove={handleRemoveFromSlot}
               onClick={() => handleSlotClick('top')}
+              onEdit={() => setTopEditorOpen(true)}
             />
             <SlotZone
               type="bottom"
@@ -774,6 +925,15 @@ export default function DIYPage() {
           AI生成穿搭图
         </button>
       </div>
+
+      {/* Top Slot Editor Drawer */}
+      <TopSlotEditor
+        isOpen={topEditorOpen}
+        onClose={() => setTopEditorOpen(false)}
+        clothes={slots.top}
+        onReorder={handleTopReorder}
+        onRemove={handleRemoveFromSlot}
+      />
 
       {/* Wardrobe Drawer */}
       <WardrobeDrawer
