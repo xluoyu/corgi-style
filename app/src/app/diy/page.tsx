@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import {
   ArrowLeft,
@@ -31,7 +31,7 @@ const MannequinImage = ({ src }: MannequinImageProps) => {
       <img
         src={src || defaultSrc}
         alt="模特"
-        className="w-full h-full object-contain"
+        className="w-full h-full object-contain opacity-40"
         draggable={false}
       />
     </div>
@@ -79,7 +79,7 @@ const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) =
           border-2 border-dashed rounded-2xl
           transition-all duration-300
           ${clothes.length > 0
-            ? 'border-emerald-300 bg-emerald-50/50'
+            ? 'border-emerald-300 bg-emerald-50/50 cursor-pointer'
             : 'border-slate-200 bg-white/50 hover:border-slate-300 hover:bg-white cursor-pointer'
           }
         `}
@@ -87,27 +87,32 @@ const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) =
           width: type === 'shoes' ? 120 : 100,
           height: type === 'shoes' ? 60 : type === 'top' ? 120 : 100,
         }}
-        onClick={clothes.length === 0 ? onClick : undefined}
+        onClick={onClick}
       >
         {/* Slot Label */}
         <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-white rounded-full shadow-sm border border-slate-100">
           <span className="text-[10px] font-medium text-slate-500">{slotLabels[type]}</span>
         </div>
 
-        {/* Clothes in this slot */}
-        <div className="flex flex-wrap items-center justify-center gap-1 p-2">
+        {/* Clothes in this slot - stacked with absolute positioning */}
+        <div className="relative flex items-center justify-center" style={{ width: type === 'shoes' ? 120 : 100, height: type === 'shoes' ? 60 : type === 'top' ? 120 : 100 }}>
           {clothes.map((item, index) => (
             <motion.div
               key={item.id}
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
-              className="relative group"
+              className="absolute group"
+              style={{
+                zIndex: index + 1, // outermost (last) on top
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+              }}
               onClick={(e) => e.stopPropagation()}
             >
               <div
                 className="w-12 h-12 rounded-lg overflow-hidden border-2 border-white shadow-md"
-                style={{ zIndex: clothes.length - index }}
               >
                 <img
                   src={item.imageUrl}
@@ -135,7 +140,7 @@ const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) =
             </motion.div>
           ))}
           {clothes.length === 0 && (
-            <div className="text-center p-2" onClick={onClick}>
+            <div className="text-center p-2 cursor-pointer" onClick={onClick}>
               <PlusCircle className="w-5 h-5 text-slate-300 mx-auto" />
               <span className="text-[10px] text-slate-400 mt-1 block">点击添加</span>
             </div>
@@ -207,35 +212,45 @@ const AccessoryItemComponent = ({ item, onPositionChange, onRemove }: AccessoryI
 interface ClothingCardProps {
   clothing: SlotClothing;
   selected: boolean;
+  disabled?: boolean;
   onToggleSelect: () => void;
 }
 
-const ClothingCard = ({ clothing, selected, onToggleSelect }: ClothingCardProps) => {
+const ClothingCard = ({ clothing, selected, disabled, onToggleSelect }: ClothingCardProps) => {
   return (
     <motion.div
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
-      onClick={onToggleSelect}
+      whileHover={disabled ? {} : { scale: 1.02 }}
+      whileTap={disabled ? {} : { scale: 0.98 }}
+      onClick={disabled ? undefined : onToggleSelect}
       className={`
-        relative cursor-pointer rounded-xl p-2 shadow-sm border-2 transition-all
-        ${selected
-          ? 'border-[#FE8F39] bg-[#FE8F39]/5'
-          : 'border-slate-100 bg-white hover:border-slate-200'
+        relative rounded-xl p-2 shadow-sm border-2 transition-all
+        ${disabled
+          ? 'border-slate-200 bg-slate-100 cursor-not-allowed opacity-60'
+          : selected
+            ? 'border-[#FE8F39] bg-[#FE8F39]/5 cursor-pointer'
+            : 'border-slate-100 bg-white hover:border-slate-200 cursor-pointer'
         }
       `}
     >
-      {/* Checkbox */}
+      {/* Checkbox - show check for both selected and disabled */}
       <div
         className={`
           absolute top-1.5 right-1.5 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all
-          ${selected
-            ? 'bg-[#FE8F39] border-[#FE8F39]'
-            : 'border-slate-300 bg-white'
+          ${disabled
+            ? 'bg-emerald-500 border-emerald-500'
+            : selected
+              ? 'bg-[#FE8F39] border-[#FE8F39]'
+              : 'border-slate-300 bg-white'
           }
         `}
       >
-        {selected && <Check className="w-3 h-3 text-white" />}
+        {(selected || disabled) && <Check className="w-3 h-3 text-white" />}
       </div>
+
+      {/* Overlay for disabled state */}
+      {disabled && (
+        <div className="absolute inset-0 bg-slate-500/20 rounded-xl z-10" />
+      )}
 
       <div className="aspect-square rounded-lg overflow-hidden bg-slate-50">
         <img
@@ -272,9 +287,9 @@ const TopSlotEditor = ({ isOpen, onClose, clothes, onReorder, onRemove }: TopSlo
   const [items, setItems] = useState(clothes);
 
   // Update local items when clothes prop changes
-  useState(() => {
+  useEffect(() => {
     setItems(clothes);
-  });
+  }, [clothes]);
 
   const handleDragEnd = (newItems: SlotClothing[]) => {
     setItems(newItems);
@@ -391,6 +406,7 @@ interface WardrobeDrawerProps {
   clothes: SlotClothing[];
   selectedCategory: string;
   selectedIds: string[];
+  addedIds: string[];
   onCategoryChange: (category: string) => void;
   onToggleSelect: (id: string) => void;
   onAddToCanvas: () => void;
@@ -402,6 +418,7 @@ const WardrobeDrawer = ({
   clothes,
   selectedCategory,
   selectedIds,
+  addedIds,
   onCategoryChange,
   onToggleSelect,
   onAddToCanvas,
@@ -477,6 +494,7 @@ const WardrobeDrawer = ({
                 key={clothing.id}
                 clothing={clothing}
                 selected={selectedIds.includes(clothing.id)}
+                disabled={addedIds.includes(clothing.id)}
                 onToggleSelect={() => onToggleSelect(clothing.id)}
               />
             ))}
@@ -942,6 +960,12 @@ export default function DIYPage() {
         clothes={mockWardrobeClothes}
         selectedCategory={selectedCategory}
         selectedIds={selectedIds}
+        addedIds={[
+          ...slots.top.map(c => c.id),
+          slots.bottom?.id,
+          slots.shoes?.id,
+          ...accessories.map(a => a.clothing.id),
+        ].filter(Boolean)}
         onCategoryChange={setSelectedCategory}
         onToggleSelect={handleToggleSelect}
         onAddToCanvas={handleAddToCanvas}
