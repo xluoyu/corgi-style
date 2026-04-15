@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import {
   ArrowLeft,
@@ -14,9 +15,10 @@ import {
   Pencil,
   Trash,
   GripVertical,
+  History,
 } from 'lucide-react';
 import { mockWardrobeClothes, categoryLabels, slotLabels } from './mock';
-import type { SlotClothing, AccessoryItem } from '@/types/diy';
+import type { SlotClothing, AccessoryItem, DIYOutfitRecord } from '@/types/diy';
 
 // Mannequin Image Component
 interface MannequinImageProps {
@@ -147,63 +149,6 @@ const SlotZone = ({ type, clothes, onRemove, onClick, onEdit }: SlotZoneProps) =
           )}
         </div>
       </div>
-    </div>
-  );
-};
-
-// Draggable Accessory Component
-interface AccessoryItemProps {
-  item: AccessoryItem;
-  onPositionChange: (id: string, position: { x: number; y: number }) => void;
-  onRemove: (id: string) => void;
-}
-
-const AccessoryItemComponent = ({ item, onPositionChange, onRemove }: AccessoryItemProps) => {
-  const itemRef = useRef<HTMLDivElement>(null);
-
-  return (
-    <div
-      className="absolute"
-      style={{ left: item.position.x, top: item.position.y }}
-    >
-      <motion.div
-        ref={itemRef}
-        drag
-        dragMomentum={false}
-        onDragEnd={(_, info) => {
-          const containerRect = itemRef.current?.parentElement?.getBoundingClientRect();
-          if (containerRect) {
-            const x = item.position.x + info.offset.x;
-            const y = item.position.y + info.offset.y;
-            onPositionChange(item.id, {
-              x: Math.max(0, Math.min(x, containerRect.width - 56)),
-              y: Math.max(0, Math.min(y, containerRect.height - 56)),
-            });
-          }
-        }}
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
-        className="relative cursor-grab active:cursor-grabbing"
-      >
-        <div className="w-14 h-14 rounded-xl overflow-hidden border-2 border-white shadow-lg bg-white">
-          <img
-            src={item.clothing.imageUrl}
-            alt={item.clothing.name}
-            className="w-full h-full object-cover"
-            draggable={false}
-          />
-        </div>
-        {/* Remove button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove(item.id);
-          }}
-          className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full items-center justify-center opacity-0 hover:opacity-100 transition-opacity flex"
-        >
-          <X className="w-2.5 h-2.5 text-white" />
-        </button>
-      </motion.div>
     </div>
   );
 };
@@ -529,18 +474,73 @@ const WardrobeDrawer = ({
   );
 };
 
+// Accessory Zone Component
+interface AccessoryZoneProps {
+  accessories: AccessoryItem[];
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+}
+
+const AccessoryZone = ({ accessories, onAdd, onRemove }: AccessoryZoneProps) => {
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-slate-900">配饰</h3>
+        <button
+          onClick={onAdd}
+          className="text-xs text-[#FE8F39] hover:text-[#e07d2a] font-medium flex items-center gap-1"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          添加
+        </button>
+      </div>
+
+      {accessories.length === 0 ? (
+        <p className="text-sm text-slate-400 text-center py-3">
+          暂无配饰，点击添加
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {accessories.map((item) => (
+            <motion.div
+              key={item.id}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="flex items-center gap-2 px-2.5 py-1.5 bg-emerald-50 rounded-full"
+            >
+              <img
+                src={item.clothing.imageUrl}
+                alt={item.clothing.name}
+                className="w-6 h-6 rounded object-cover"
+              />
+              <span className="text-xs text-emerald-700 font-medium">
+                {item.clothing.name}
+              </span>
+              <button
+                onClick={() => onRemove(item.id)}
+                className="w-4 h-4 rounded-full bg-emerald-100 flex items-center justify-center hover:bg-emerald-200 transition-colors"
+              >
+                <X className="w-2.5 h-2.5 text-emerald-600" />
+              </button>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Outfit Summary Component
 interface OutfitSummaryProps {
   slots: { top: SlotClothing[]; bottom: SlotClothing | null; shoes: SlotClothing | null };
-  accessories: AccessoryItem[];
 }
 
-const OutfitSummary = ({ slots, accessories }: OutfitSummaryProps) => {
+const OutfitSummary = ({ slots }: OutfitSummaryProps) => {
   const totalItems =
     slots.top.length +
     (slots.bottom ? 1 : 0) +
-    (slots.shoes ? 1 : 0) +
-    accessories.length;
+    (slots.shoes ? 1 : 0);
 
   return (
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-100">
@@ -600,23 +600,6 @@ const OutfitSummary = ({ slots, accessories }: OutfitSummaryProps) => {
             <span className="text-[10px] text-amber-700 font-medium">{slots.shoes.name}</span>
           </motion.div>
         )}
-
-        {/* Accessories */}
-        {accessories.map((item) => (
-          <motion.div
-            key={item.id}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 rounded-full"
-          >
-            <img
-              src={item.clothing.imageUrl}
-              alt={item.clothing.name}
-              className="w-5 h-5 rounded object-cover"
-            />
-            <span className="text-[10px] text-emerald-700 font-medium">{item.clothing.name}</span>
-          </motion.div>
-        ))}
 
         {totalItems === 0 && (
           <p className="text-sm text-slate-400 w-full text-center py-2">
@@ -702,8 +685,82 @@ const GeneratedImageModal = ({ isOpen, imageUrl, onClose, onSave, isLoading }: G
   );
 };
 
+// Accessory Prompt Modal
+interface AccessoryPromptModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (prompt: string) => void;
+}
+
+const AccessoryPromptModal = ({ isOpen, onClose, onConfirm }: AccessoryPromptModalProps) => {
+  const [prompt, setPrompt] = useState('');
+
+  const handleConfirm = () => {
+    onConfirm(prompt);
+    setPrompt('');
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-900">配饰位置</h3>
+              <button
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
+              >
+                <X className="w-4 h-4 text-slate-600" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-600 mb-3">
+              请说明配饰应该穿戴在哪个位置
+            </p>
+
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="例如：右手提包，位于身体右侧；帽子歪戴在头上"
+              className="w-full h-28 px-3 py-2 text-sm border border-slate-200 rounded-xl resize-none focus:outline-none focus:border-[#FE8F39] focus:ring-1 focus:ring-[#FE8F39]"
+            />
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={onClose}
+                className="flex-1 py-3 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirm}
+                className="flex-1 py-3 rounded-xl bg-[#FE8F39] text-sm font-medium text-white hover:bg-[#e07d2a] transition-colors flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                确认生成
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 // Main DIY Page Component
 export default function DIYPage() {
+  const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [topEditorOpen, setTopEditorOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -720,8 +777,58 @@ export default function DIYPage() {
   const [accessories, setAccessories] = useState<AccessoryItem[]>([]);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [showAccessoryPromptModal, setShowAccessoryPromptModal] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // 从 localStorage 恢复编辑数据
+  useEffect(() => {
+    const savedRecord = localStorage.getItem('diy_edit_record');
+    if (savedRecord) {
+      try {
+        const record: DIYOutfitRecord = JSON.parse(savedRecord);
+
+        // 将 slots 中的 ID 转换为完整的 SlotClothing 对象
+        const topClothes = record.slots.top
+          .map((id) => mockWardrobeClothes.find((c) => c.id === id))
+          .filter((c): c is SlotClothing => c !== undefined);
+
+        const bottomClothing = record.slots.bottom
+          ? mockWardrobeClothes.find((c) => c.id === record.slots.bottom) || null
+          : null;
+
+        const shoesClothing = record.slots.shoes
+          ? mockWardrobeClothes.find((c) => c.id === record.slots.shoes) || null
+          : null;
+
+        // 将 accessories 中的 ID 转换为完整的 AccessoryItem 对象
+        const accessoryItems: AccessoryItem[] = record.accessories
+          .map((a) => {
+            const clothing = mockWardrobeClothes.find((c) => c.id === a.clothing_id);
+            if (!clothing) return null;
+            return {
+              id: `acc-${Date.now()}-${Math.random()}`,
+              clothing,
+            };
+          })
+          .filter((a): a is AccessoryItem => a !== null);
+
+        // 恢复到状态
+        setSlots({
+          top: topClothes,
+          bottom: bottomClothing,
+          shoes: shoesClothing,
+        });
+        setAccessories(accessoryItems);
+
+        // 清除 localStorage
+        localStorage.removeItem('diy_edit_record');
+      } catch (e) {
+        console.error('Failed to restore DIY record:', e);
+        localStorage.removeItem('diy_edit_record');
+      }
+    }
+  }, []);
 
   // Toggle clothing selection
   const handleToggleSelect = useCallback((id: string) => {
@@ -749,11 +856,10 @@ export default function DIYPage() {
       shoes: shoesClothes[0] || prev.shoes, // Only take first shoes
     }));
 
-    // Add accessories to top-left corner
+    // Add accessories to list
     const newAccessories = accessoryClothes.map((c, index) => ({
       id: `acc-${Date.now()}-${index}`,
       clothing: c,
-      position: { x: 20 + index * 60, y: 20 }, // Offset each accessory
     }));
     setAccessories((prev) => [...prev, ...newAccessories]);
 
@@ -791,27 +897,59 @@ export default function DIYPage() {
     setAccessories((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
-  // Update accessory position
-  const handleAccessoryPositionChange = useCallback(
-    (id: string, position: { x: number; y: number }) => {
-      setAccessories((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, position } : a))
-      );
-    },
-    []
-  );
-
   // Generate outfit image
   const handleGenerate = useCallback(() => {
+    if (accessories.length > 0) {
+      // Show accessory prompt modal first
+      setShowAccessoryPromptModal(true);
+    } else {
+      // Direct generation
+      setIsGenerating(true);
+      setShowModal(true);
+
+      // Simulate AI generation
+      setTimeout(() => {
+        setGeneratedImage('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=800&fit=crop');
+        setIsGenerating(false);
+      }, 3000);
+    }
+  }, [accessories.length]);
+
+  // Confirm accessory prompt and generate
+  const handleConfirmAccessoryPrompt = useCallback((accessoryPrompt: string) => {
+    setShowAccessoryPromptModal(false);
     setIsGenerating(true);
     setShowModal(true);
+
+    // Build prompt with accessory description
+    const promptParts: string[] = [];
+    if (slots.top.length > 0) {
+      promptParts.push(`上装：${slots.top.map(c => c.name).join('、')}`);
+    }
+    if (slots.bottom) {
+      promptParts.push(`下装：${slots.bottom.name}`);
+    }
+    if (slots.shoes) {
+      promptParts.push(`鞋子：${slots.shoes.name}`);
+    }
+    if (accessories.length > 0) {
+      promptParts.push(`配饰：${accessories.map(a => a.clothing.name).join('、')}`);
+    }
+
+    let fullPrompt = `真人模特穿搭，${promptParts.join('，')}`;
+    if (accessoryPrompt) {
+      fullPrompt += `。配饰佩戴说明：${accessoryPrompt}`;
+    }
+    fullPrompt += '。正面站姿，简洁背景，高质量';
+
+    console.log('Generated prompt:', fullPrompt);
 
     // Simulate AI generation
     setTimeout(() => {
       setGeneratedImage('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=800&fit=crop');
       setIsGenerating(false);
     }, 3000);
-  }, []);
+  }, [slots, accessories]);
 
   // Save outfit
   const handleSave = useCallback(() => {
@@ -841,10 +979,10 @@ export default function DIYPage() {
               <h1 className="text-xl font-bold text-slate-900">DIY穿搭</h1>
             </div>
             <button
-              onClick={() => setDrawerOpen(true)}
+              onClick={() => router.push('/diy/records')}
               className="w-9 h-9 bg-white rounded-xl shadow-sm border border-slate-100 flex items-center justify-center hover:bg-slate-50 transition-colors"
             >
-              <Shirt className="w-5 h-5 text-slate-600" />
+              <History className="w-5 h-5 text-slate-600" />
             </button>
           </div>
         </div>
@@ -892,22 +1030,25 @@ export default function DIYPage() {
               onClick={() => handleSlotClick('shoes')}
             />
 
-            {/* Accessories Layer */}
-            {accessories.map((item) => (
-              <AccessoryItemComponent
-                key={item.id}
-                item={item}
-                onPositionChange={handleAccessoryPositionChange}
-                onRemove={handleRemoveAccessory}
-              />
-            ))}
-          </div>
+                      </div>
         </div>
       </div>
 
       {/* Outfit Summary */}
       <div className="px-4 mt-4">
-        <OutfitSummary slots={slots} accessories={accessories} />
+        <OutfitSummary slots={slots} />
+      </div>
+
+      {/* Accessory Zone */}
+      <div className="px-4 mt-4">
+        <AccessoryZone
+          accessories={accessories}
+          onAdd={() => {
+            setSelectedCategory('accessory');
+            setDrawerOpen(true);
+          }}
+          onRemove={handleRemoveAccessory}
+        />
       </div>
 
       {/* Generate Button */}
@@ -965,6 +1106,13 @@ export default function DIYPage() {
         }}
         onSave={handleSave}
         isLoading={isGenerating}
+      />
+
+      {/* Accessory Prompt Modal */}
+      <AccessoryPromptModal
+        isOpen={showAccessoryPromptModal}
+        onClose={() => setShowAccessoryPromptModal(false)}
+        onConfirm={handleConfirmAccessoryPrompt}
       />
     </div>
   );

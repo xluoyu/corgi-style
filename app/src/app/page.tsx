@@ -289,7 +289,7 @@ function FeatureGrid() {
         title="DIY穿搭"
         icon={<Palette size={20} className="text-blue-500" />}
         color="bg-blue-50 border-blue-100"
-        onClick={handleUnauthorized}
+        onClick={() => router.push("/diy")}
       />
       <FeatureItem
         title="我的衣柜"
@@ -301,7 +301,7 @@ function FeatureGrid() {
         title="穿搭集"
         icon={<LayoutGrid size={20} className="text-emerald-500" />}
         color="bg-emerald-50 border-emerald-100"
-        onClick={handleUnauthorized}
+        onClick={() => router.push("/collection")}
       />
       <motion.div
         whileTap={{ scale: 0.98 }}

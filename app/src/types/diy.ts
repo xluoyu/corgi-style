@@ -13,7 +13,7 @@ export interface SlotClothing {
 export interface AccessoryItem {
   id: string;
   clothing: SlotClothing;
-  position: { x: number; y: number };
+  position?: { x: number; y: number };
 }
 
 export interface DIYOutfitState {
